@@ -1,6 +1,7 @@
 import os
 import sys
 import pytest
+import sumo.wrapper
 from pathlib import Path
 
 # run the tests from the root dir
