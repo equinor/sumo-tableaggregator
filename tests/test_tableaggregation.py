@@ -1,3 +1,4 @@
+"""Testing of classe TableAggregator"""
 from context import TableAggregator
 
 
