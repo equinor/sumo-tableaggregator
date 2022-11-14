@@ -1,7 +1,9 @@
 """Utils for table aggregation"""
 import logging
 import warnings
+from typing import Dict
 import pandas as pd
+import pyarrow as pa
 from sumo.wrapper import SumoClient
 
 
@@ -14,6 +16,42 @@ def init_logging(name):
     logger = logging.getLogger(name)
     logger.addHandler(logging.NullHandler())
     return logger
+
+
+def arrow_to_frame(blob_object):
+    """Reads blob into pandas dataframe
+    args:
+    blob_ids (dict): key is real name: value blob id
+    real_nr (str): real nr
+    returns frame (pd.DataFrame): the extracted data
+    """
+    with pa.ipc.open_file(blob_object) as stream:
+        frame = stream.read_pandas()
+    return frame
+
+
+def arrow_to_table(blob_object):
+    """Reads sumo blob into pandas dataframe
+    args:
+    blob_ids (dict): key is real name: value blob id
+    real_nr (str): real nr
+    returns frame (pd.DataFrame): the extracted data
+    """
+    with pa.ipc.open_file(blob_object) as stream:
+        table = stream.read_all()
+    return table
+
+
+def get_blob(blob_ids: Dict[str, str], real_nr: str, sumo: SumoClient):
+    """Fetches sumo blob
+    args:
+    blob_ids (dict): key is real name: value blob id
+    real_nr (str): real nr
+    returns blob (binary something):
+    """
+    query =  f"/objects('{blob_ids[real_nr]}')/blob"
+    blob = sumo.get(query)
+    return blob
 
 
 class ParameterSet():
@@ -82,8 +120,9 @@ def split_results(query_results) -> dict:
     return split_results_and_meta(hits)
 
 
-def get_blob_ids_w_metadata(case_name: str, table_name: str, table_tag: str = "",
-                            table_content: str = "depth", sumo_env: str = "prod") -> dict:
+def get_blob_ids_w_metadata(sumo: SumoClient, case_name: str, table_name: str,
+                            table_tag: str = "",
+                            table_content: str = "depth") -> dict:
     """Fetches blob ids for relevant tables, collates metadata
     args:
     case_name (str): name of case
@@ -93,10 +132,20 @@ def get_blob_ids_w_metadata(case_name: str, table_name: str, table_tag: str = ""
     sumo_env (str): what environment to communicate with
     """
     logger = init_logging(__name__ + ".get_blob_ids_w_metadata")
-    sumo = SumoClient(sumo_env)
     query = (f"fmu.case.name:{case_name} AND data.name:{table_name} " +
              f"AND data.content:{table_content} AND class:table"
     )
     print(query)
     results = split_results(sumo.get(path="/search", query=query, size=1000))
     return results
+
+
+def aggregate_objects(object_ids: Dict[str, str]):
+    """Aggregates the individual files into one large pyarrow table
+    args:
+    object_ids (dict): key is
+    returns: aggregated (pa.table): the aggregated results
+    """
+    for real_nr, object_id in object_ids.items():
+        extended =  arrow_to_table(blob_ids, real_nr)
+        help(extented)

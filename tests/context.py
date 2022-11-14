@@ -1,8 +1,8 @@
 import os
 import sys
-import pytest
 import sumo.wrapper
 from pathlib import Path
+
 
 # run the tests from the root dir
 TEST_DIR = Path(__file__).parent / "../"
@@ -21,3 +21,4 @@ def add_path():
 add_path()
 
 from sumo.table_aggregation import TableAggregator
+from sumo.table_aggregation import _utils as ut
