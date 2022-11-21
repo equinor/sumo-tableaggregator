@@ -16,7 +16,7 @@ TEST_DATA = Path(__file__).parent / "data"
 TEST_ARROW_FILE = TEST_DATA / "2_columns_data.arrow"
 AGGREGATED_CSV = TEST_DATA / "aggregated.csv"
 MINIAGG_CSV = TEST_DATA / "mini_aggregated.csv"
-QUERY_FILE = TEST_DATA /"query_results.json"
+QUERY_FILE = TEST_DATA / "query_results.json"
 TMP = Path("tmp")
 
 
@@ -201,3 +201,21 @@ def test_store_aggregated_objects(ids_and_friends, file_name=MINIAGG_CSV):
     ut.store_aggregated_objects(frame, meta_stub)
     TIMER.stop()
     assert_file_and_meta_couples(TMP)
+
+
+def test_make_stat_aggregations(file_name=MINIAGG_CSV):
+    """Tests function store_stat_aggregations"""
+    frame = pd.read_csv(file_name)
+    print(frame.head())
+    stats = ut.make_stat_aggregations(frame)
+    print(stats["FGPR"]["mean"])
+
+
+def test_upload_aggregated(sumo, store_folder=TMP):
+    """Tests function upload aggregated
+    args:
+    sumo (SumoClient instance): the client to use for uploading
+    store_folder (str): folder containing results
+    """
+    count = ut.upload_aggregated(sumo, store_folder)
+    assert count == 3, f"Not uploaded all files ({count})"

@@ -33,7 +33,7 @@ data:
 display:
   name: summary
 file:
-  absolute_path: ''
+  absolute_path: /private/dbs/git/sumo-tableaggregator/tests/tmp/aggregated_summary.arrow
   checksum_md5: e44af57c392be9a1cd980fcaff777b66
   relative_path: ''
 fmu:

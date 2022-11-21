@@ -32,7 +32,7 @@ data:
 display:
   name: summary
 file:
-  absolute_path: ''
+  absolute_path: /private/dbs/git/sumo-tableaggregator/tests/tmp/FGPR.arrow
   checksum_md5: ed2e19e0660392cf7b100b1116efa5a4
   relative_path: ''
 fmu:

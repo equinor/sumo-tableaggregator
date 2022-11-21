@@ -6,6 +6,7 @@ import uuid
 from typing import Dict
 from pathlib import Path
 import yaml
+import numpy as np
 import pandas as pd
 import pyarrow as pa
 from pyarrow import feather
@@ -15,7 +16,7 @@ from sumo.wrapper import SumoClient
 TMP = Path("tmp")
 
 
-def init_logging(name):
+def init_logging(name: str) -> logging.Logger:
     """Inits a logging null handler
     args:
     name (str): name of logger
@@ -25,8 +26,9 @@ def init_logging(name):
     logger.addHandler(logging.NullHandler())
     return logger
 
+
 # The two functions below are stolen from fmu.dataio._utils
-def md5sum(fname):
+def md5sum(fname: str) -> str:
     """Makes checksum from file
     args:
     fname (str): name of file
@@ -39,7 +41,7 @@ def md5sum(fname):
     return hash_md5.hexdigest()
 
 
-def write_yaml(write_dict, filename):
+def write_yaml(write_dict: dict, filename: str):
     """Dump dictionary to yaml file
     args:
     write_dict (dict): dictionary to write
@@ -49,7 +51,21 @@ def write_yaml(write_dict, filename):
         yaml.dump(write_dict, methandle)
 
 
-def uuid_from_string(string):
+def read_yaml(filename: str) -> dict:
+    """Reads yaml file
+    args:
+    filename (str): file to write to
+    returns yam (dict): results of the reading process
+    """
+    try:
+        with open(filename, "r", encoding="utf-8") as methandle:
+            yam = yaml.load(methandle, Loader=yaml.FullLoader)
+    except IOError:
+        warnings.warn(f"No file at {filename}")
+    return yam
+
+
+def uuid_from_string(string: str) -> str:
     """Produce valid and repeteable UUID4 as a hash of given string
     string (str): the string to make uuid from
     """
@@ -58,7 +74,7 @@ def uuid_from_string(string):
 # END of steal
 
 
-def get_object(object_id: str, sumo: SumoClient, pandas=True):
+def get_object(object_id: str, sumo: SumoClient, pandas: bool = True):
     """Gets object from blob store
     args:
     object_id (str): the id of the object
@@ -73,7 +89,7 @@ def get_object(object_id: str, sumo: SumoClient, pandas=True):
     return digestable
 
 
-def arrow_to_frame(blob_object):
+def arrow_to_frame(blob_object) -> pd.DataFrame:
     """Reads blob into pandas dataframe
     args:
     blob_object (dict): the object to read
@@ -84,7 +100,7 @@ def arrow_to_frame(blob_object):
     return frame
 
 
-def arrow_to_table(blob_object):
+def arrow_to_table(blob_object) -> pa.Table:
     """Reads sumo blob into pandas dataframe
     args:
     blob_object (dict): the object to read
@@ -95,7 +111,7 @@ def arrow_to_table(blob_object):
     return table
 
 
-def frame_to_feather(frame, agg_meta, table_type=None):
+def frame_to_feather(frame: pd.DataFrame, agg_meta: dict, table_type: str = None):
     """Writes arrow format from pd.DataFrame
     args:
     frame (pd.DataFrame): the data to write
@@ -121,6 +137,7 @@ def frame_to_feather(frame, agg_meta, table_type=None):
     meta_name = TMP / f".{file_name.name}.yml"
 
     agg_meta["data"]["spec"]["columns"] = frame.columns.tolist()
+    agg_meta["file"]["absolute_path"] = str(file_name.absolute())
     feather.write_feather(frame, dest=file_name)
     md5 = md5sum(file_name)
     agg_meta["file"]["checksum_md5"] = md5
@@ -150,25 +167,25 @@ class MetadataSet():
         self._uuids = set()
 
     @property
-    def parameter_dict(self):
+    def parameter_dict(self) -> dict:
         """Returns _parameter_dict attribute"""
         return self._parameter_dict
 
     @property
-    def real_ids(self):
+    def real_ids(self) -> tuple:
         """Returns _real_ids attribute"""
         return tuple(self._real_ids)
 
     @property
-    def uuids(self):
+    def uuids(self) -> list:
         """Returns _uuid attribute"""
         return self._uuids
 
-    def aggid(self):
+    def aggid(self) -> str:
         """Returns the hash of the sum of all the sorted(uuids)"""
         return str("".join(sorted(self.uuids)))
 
-    def add_realisation(self, real_nr, real_parameters):
+    def add_realisation(self, real_nr: int, real_parameters: dict):
         """Adds parameters from one realisation
         args:
         real_parameters (dict): parameters from one realisation
@@ -180,7 +197,7 @@ class MetadataSet():
                 self._parameter_dict[name] = {}
             self._parameter_dict[name][real_nr] = real_parameters[name]
 
-    def base_meta(self, metadata):
+    def base_meta(self, metadata: dict) -> dict:
         """Converts one metadata file into aggregated metadata
         args:
         metadata (dict): one valid metadatafile
@@ -233,7 +250,7 @@ def get_blob_ids_w_metadata(query_results: dict) -> dict:
 
 
 def query_sumo(sumo: SumoClient, case_name: str, name: str,
-                            tag: str = "", content: str = "depth") -> tuple:
+               tag: str = "", content: str = "depth") -> tuple:
     """Fetches blob ids for relevant tables, collates metadata
     args:
     case_name (str): name of case
@@ -254,7 +271,7 @@ def query_sumo(sumo: SumoClient, case_name: str, name: str,
 
 
 def query_for_tables(sumo: SumoClient, case_name: str, name: str,
-                            tag: str = "", content: str = "depth") -> tuple:
+                     tag: str = "", content: str = "depth") -> tuple:
     """Fetches blob ids for relevant tables, collates metadata
     args:
     case_name (str): name of case
@@ -268,7 +285,7 @@ def query_for_tables(sumo: SumoClient, case_name: str, name: str,
     return results
 
 
-def aggregate_objects(object_ids: Dict[str, str], sumo: SumoClient):
+def aggregate_objects(object_ids: Dict[str, str], sumo: SumoClient) -> pd.DataFrame:
     """Aggregates the individual files into one large pyarrow table
     args:
     object_ids (dict): key is real nr, value is object id
@@ -282,6 +299,40 @@ def aggregate_objects(object_ids: Dict[str, str], sumo: SumoClient):
     aggregated = pd.concat(aggregated)
     aggregated["REAL"] = aggregated["REAL"].astype(int)
     return aggregated
+
+
+def p10(array_like):
+    """Returns p10 of array like
+    args:
+    array_like (array like): numpy array or pd.Series pd.DataFrame
+    """
+    return np.percentile(array_like, 90)
+
+
+def p90(array_like):
+    """Returns p90 of array like
+    args:
+    array_like (array like): numpy array or pd.Series pd.DataFrame
+    """
+    return np.percentile(array_like, 10)
+
+
+def make_stat_aggregations(frame: pd.DataFrame,
+                           aggfuncs: list = ("mean", p10, p90)):
+    """Makes statistical aggregations from dataframe
+    args
+    frame (pd.DataFrame): data to process
+    aggfuncs (list): what aggregations to process
+
+    """
+    logger = init_logging(__name__ + ".make_stat_aggregations")
+    non_aggs = ["DATE", "REAL", "ENSEMBLE"]
+    stat_curves = [name for name in frame.columns if name not in non_aggs]
+    logger.info("Will do stats on these vectors %s ", stat_curves)
+    print(stat_curves)
+    stats = frame.pivot_table(index="DATE", values=stat_curves,
+                              aggfunc=aggfuncs)
+    return stats
 
 
 def store_aggregated_objects(frame: pd.DataFrame, meta_stub: dict,
@@ -310,7 +361,30 @@ def store_aggregated_objects(frame: pd.DataFrame, meta_stub: dict,
     logger.info("%s files produced", count)
 
 
-def convert_metadata(single_metadata, real_ids, context="fmu", operation="collection"):
+def upload_aggregated(sumo: SumoClient, store_dir: str = "tmp"):
+    """Uploads files to sumo
+    sumo (SumoClient): the client to use for uploading
+    store_dir (str): name of folder where results are stored
+    """
+    logger = init_logging(__name__ + ".upload_aggregated")
+    store = Path(store_dir)
+    upload_files = list(store.glob("*"))
+    print(upload_files)
+    file_count = 0
+    for upload_file in upload_files:
+        if not upload_file.name.startswith("."):
+            continue
+        meta = read_yaml(upload_file)
+        respons = sumo.post("/objects", json=meta)
+        print(respons)
+        file_count += 1
+    logger.info("Uploaded %s files", file_count)
+    return file_count
+    # store.rmdir()
+
+
+def convert_metadata(single_metadata: dict, real_ids: list, context="fmu",
+                     operation: str = "collection"):
     """Makes metadata for the aggregated data from single metadata
     args:
     single_metadata (dict): one single metadata dict

@@ -32,7 +32,7 @@ data:
 display:
   name: summary
 file:
-  absolute_path: ''
+  absolute_path: /private/dbs/git/sumo-tableaggregator/tests/tmp/FOPT.arrow
   checksum_md5: 0ff272b49208cc1ca57e82bc42dd8277
   relative_path: ''
 fmu:
