@@ -111,32 +111,73 @@ def arrow_to_table(blob_object) -> pa.Table:
     return table
 
 
+def stat_frame_to_feather(frame: pd.DataFrame, agg_meta: dict):
+    """Writes arrow format from pd.DataFrame with two multilevel index
+    args:
+    frame (pd.DataFrame): the data to write
+    agg_meta (dict): Stub for aggregated meta to be written
+    """
+    try:
+        agg_types = frame.columns.get_level_values(1)
+        names = frame.columns.get_level_values(0)
+
+    except IndexError as ierr:
+        raise IndexError("This is not a dataframe with statistics") from ierr
+
+    for agg_type in agg_types:
+
+        for name in names:
+            agg_frame = pd.DataFrame(frame[name][agg_type])
+            agg_frame.columns = [name]
+            frame_cols = agg_frame.columns.tolist()
+            # agg_meta["aggregation"] =  agg_meta.get("aggregation", {})
+            agg_meta["fmu"]["aggregation"]["operation"] = agg_type
+            write_feather(agg_frame, f"{name}_{agg_type}", agg_meta, frame_cols)
+    write_feather(agg_frame.reset_index()[["DATE"]], "DATE_for_agg",
+                  agg_meta, ["DATE"])
+
+
 def frame_to_feather(frame: pd.DataFrame, agg_meta: dict, table_type: str = None):
     """Writes arrow format from pd.DataFrame
     args:
     frame (pd.DataFrame): the data to write
     agg_meta (dict): Stub for aggregated meta to be written
-    table_type
-    returns: table
+    table_type (str): name to be put in metadata, if None, autodetection
     """
     if not TMP.exists():
         TMP.mkdir()
-    frame_cols = frame.columns.tolist()
-    if table_type is not None:
-        name = table_type
-    elif len(frame_cols) == 2:
-        name = [col for col in frame_cols if col != "REAL"].pop()
-    else:
-        if "BULK" in frame_cols:
-            name = "volumes"
-        else:
-            name = "summary"
 
-        name = "aggregated_" + name
+    try:
+        stat_frame_to_feather(frame, agg_meta)
+    except IndexError:
+
+        frame_cols = frame.columns.tolist()
+        print(f"####{frame_cols}###")
+        if table_type is not None:
+            name = table_type
+        elif len(frame_cols) == 2:
+            name = [col for col in frame_cols if col != "REAL"].pop()
+        else:
+            if "BULK" in frame_cols:
+                name = "volumes"
+            else:
+                name = "summary"
+            name = "aggregated_" + name
+        print(f"Name: {name}")
+        write_feather(frame, name, agg_meta, frame_cols)
+
+
+def write_feather(frame: pd.DataFrame, name: str, agg_meta: dict, columns: list):
+    """Writes feather file
+    args:
+    frame (pd.DataFrame): the data to write
+    agg_meta (dict): Stub for aggregated meta to be written
+    columns (list): the column names in the frame
+    """
     file_name = TMP / (name + ".arrow")
     meta_name = TMP / f".{file_name.name}.yml"
 
-    agg_meta["data"]["spec"]["columns"] = frame.columns.tolist()
+    agg_meta["data"]["spec"]["columns"] = columns
     agg_meta["file"]["absolute_path"] = str(file_name.absolute())
     feather.write_feather(frame, dest=file_name)
     md5 = md5sum(file_name)
@@ -213,12 +254,16 @@ def split_results_and_meta(results: list) -> dict:
     results (list): query_results["hits"]["hist"]
     returns split_tup (tuple): tuple with split results
     """
+    logger = init_logging(__name__ + ".split_result_and_meta")
     meta = MetadataSet()
     blob_ids = {}
     for result in results:
         real_meta = result["_source"]
-        real = real_meta["fmu"].pop("realization")
-        name = real["id"]
+        try:
+            real = real_meta["fmu"].pop("realization")
+            name = real["id"]
+        except KeyError:
+            logger.warning("No realization in result, allready aggregation?")
         meta.add_realisation(name, real["parameters"])
         blob_ids[name] = result["_id"]
     agg_meta = meta.base_meta(real_meta)
@@ -230,9 +275,8 @@ def get_blob_ids_w_metadata(query_results: dict) -> dict:
     """splits query results
        get_results ()
     """
-    total_count = query_results["hits"]["total"]["value"]
-
     logger = init_logging(__name__ + ".get_blob_ids_w_meta")
+    total_count = query_results["hits"]["total"]["value"]
 
     logger.debug(total_count)
     hits = query_results["hits"]["hits"]
@@ -259,7 +303,7 @@ def query_sumo(sumo: SumoClient, case_name: str, name: str,
     content (str): table content
     sumo_env (str): what environment to communicate with
     """
-    logger = init_logging(__name__ + ".get_blob_ids_w_metadata")
+    logger = init_logging(__name__ + ".query_sumo")
     query = (f"fmu.case.name:{case_name} AND data.name:{name} " +
              f"AND data.content:{content} AND class:table"
     )
@@ -336,10 +380,12 @@ def make_stat_aggregations(frame: pd.DataFrame,
 
 
 def store_aggregated_objects(frame: pd.DataFrame, meta_stub: dict,
-                             keep_grand_aggregation: bool = True):
+                             keep_grand_aggregation: bool = True,
+                             withstats: bool = False):
     """Stores results in temp folder
     frame (pd.DataFrame): the dataframe to store
     keep_grand_aggregation (bool): store copy of the aggregated or not
+    withstats (bool): make statistical vectors as well
     """
     logger = init_logging(__name__ + ".store_aggregated_objects")
     count = 0
@@ -357,7 +403,10 @@ def store_aggregated_objects(frame: pd.DataFrame, meta_stub: dict,
         export_frame = frame[keep_cols]
         frame_to_feather(export_frame, meta_stub)
         count += 1
-
+    if withstats:
+        print("Making stats!")
+        stat_frame = make_stat_aggregations(frame)
+        frame_to_feather(stat_frame, meta_stub)
     logger.info("%s files produced", count)
 
 
