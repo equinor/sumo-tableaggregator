@@ -120,7 +120,7 @@ data:
   spec:
     columns:
     - REAL
-    - FOPT
+    - DATE
     size: 234734
   stratigraphic: false
   tagname: ''
@@ -129,12 +129,12 @@ data:
 display:
   name: summary
 file:
-  absolute_path: /private/dbs/git/sumo-tableaggregator/tests/tmp/FOPT.arrow
-  checksum_md5: 0ff272b49208cc1ca57e82bc42dd8277
+  absolute_path: /private/dbs/git/sumo-tableaggregator/tests/tmp/DATE.arrow
+  checksum_md5: 51318560b8d5de15780499fb46daaeaa
   relative_path: ''
 fmu:
   aggregation:
-    id: 7db0e6e2-2d8a-14c7-c8fa-5096481421fe
+    id: 722ce1a3-7619-edd7-5af8-24a5d9d7d7e2
     operation: collection
     realization_ids:
     - 0

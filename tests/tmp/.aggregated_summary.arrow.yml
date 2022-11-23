@@ -1,10 +1,107 @@
 $schema: https://main-fmu-schemas-dev.radix.equinor.com/schemas/0.8.0/fmu_results.json
 _sumo:
-  blob_md5: 7y4A9NCLCNxDbd6zpn9uhQ==
-  blob_name: 00000000-0000-0000-0000-000000000000/179e46be-9cab-28e0-5358-1dcda670272d/638a2f65-3548-68f2-594a-79770c71e92a
-  blob_size: 950530
-  blob_url: https://stsumoprod.blob.core.windows.net:443/sumo/00000000-0000-0000-0000-000000000000/179e46be-9cab-28e0-5358-1dcda670272d/638a2f65-3548-68f2-594a-79770c71e92a
+  blob_md5: D/JytJIIzBylfoK8Qt2Cdw==
+  blob_name: 00000000-0000-0000-0000-000000000000/179e46be-9cab-28e0-5358-1dcda670272d/c9e312e0-1172-f825-15f4-234d266b81f4
+  blob_size: 217722
+  blob_url: https://stsumoprod.blob.core.windows.net:443/sumo/00000000-0000-0000-0000-000000000000/179e46be-9cab-28e0-5358-1dcda670272d/c9e312e0-1172-f825-15f4-234d266b81f4
+  log:
+  - status: scratch
+    timestamp: '2022-11-21T12:54:06Z'
+    updated_by: DBS@equinor.com
+  - status: scratch
+    timestamp: '2022-11-21T12:54:06Z'
+    updated_by: DBS@equinor.com
+  - status: scratch
+    timestamp: '2022-11-21T12:54:06Z'
+    updated_by: DBS@equinor.com
+  - status: scratch
+    timestamp: '2022-11-21T13:57:59Z'
+    updated_by: DBS@equinor.com
+  - status: scratch
+    timestamp: '2022-11-21T13:58:00Z'
+    updated_by: DBS@equinor.com
+  - status: scratch
+    timestamp: '2022-11-21T13:58:00Z'
+    updated_by: DBS@equinor.com
+  - status: scratch
+    timestamp: '2022-11-22T08:02:25Z'
+    updated_by: DBS@equinor.com
+  - status: scratch
+    timestamp: '2022-11-22T08:02:25Z'
+    updated_by: DBS@equinor.com
+  - status: scratch
+    timestamp: '2022-11-22T08:02:26Z'
+    updated_by: DBS@equinor.com
+  - status: scratch
+    timestamp: '2022-11-22T08:02:47Z'
+    updated_by: DBS@equinor.com
+  - status: scratch
+    timestamp: '2022-11-22T08:02:48Z'
+    updated_by: DBS@equinor.com
+  - status: scratch
+    timestamp: '2022-11-22T08:02:48Z'
+    updated_by: DBS@equinor.com
+  - status: scratch
+    timestamp: '2022-11-22T13:36:46Z'
+    updated_by: DBS@equinor.com
+  - status: scratch
+    timestamp: '2022-11-22T13:36:47Z'
+    updated_by: DBS@equinor.com
+  - status: scratch
+    timestamp: '2022-11-22T13:36:47Z'
+    updated_by: DBS@equinor.com
+  - status: scratch
+    timestamp: '2022-11-22T13:36:48Z'
+    updated_by: DBS@equinor.com
+  - status: scratch
+    timestamp: '2022-11-22T13:51:43Z'
+    updated_by: DBS@equinor.com
+  - status: scratch
+    timestamp: '2022-11-22T13:51:44Z'
+    updated_by: DBS@equinor.com
+  - status: scratch
+    timestamp: '2022-11-22T13:51:44Z'
+    updated_by: DBS@equinor.com
+  - status: scratch
+    timestamp: '2022-11-22T13:51:45Z'
+    updated_by: DBS@equinor.com
+  - status: scratch
+    timestamp: '2022-11-22T15:32:14Z'
+    updated_by: DBS@equinor.com
+  - status: scratch
+    timestamp: '2022-11-22T15:32:14Z'
+    updated_by: DBS@equinor.com
+  - status: scratch
+    timestamp: '2022-11-22T15:32:15Z'
+    updated_by: DBS@equinor.com
+  - status: scratch
+    timestamp: '2022-11-22T15:32:15Z'
+    updated_by: DBS@equinor.com
+  - status: scratch
+    timestamp: '2022-11-22T15:32:16Z'
+    updated_by: DBS@equinor.com
+  - status: scratch
+    timestamp: '2022-11-22T15:32:17Z'
+    updated_by: DBS@equinor.com
+  - status: scratch
+    timestamp: '2022-11-22T15:32:17Z'
+    updated_by: DBS@equinor.com
+  - status: scratch
+    timestamp: '2022-11-22T15:32:17Z'
+    updated_by: DBS@equinor.com
+  - status: scratch
+    timestamp: '2022-11-22T15:32:18Z'
+    updated_by: DBS@equinor.com
+  - status: scratch
+    timestamp: '2022-11-22T15:32:18Z'
+    updated_by: DBS@equinor.com
+  - status: scratch
+    timestamp: '2022-11-22T15:32:18Z'
+    updated_by: DBS@equinor.com
   parent_object: 179e46be-9cab-28e0-5358-1dcda670272d
+  status: scratch
+  timestamp: '2022-11-22T15:32:18Z'
+  updated_by: DBS@equinor.com
 access:
   asset:
     name: Drogon
@@ -22,9 +119,10 @@ data:
   name: summary
   spec:
     columns:
-    - REAL
+    - DATE
     - FOPT
     - FGPR
+    - REAL
     size: 234734
   stratigraphic: false
   tagname: ''
@@ -34,11 +132,11 @@ display:
   name: summary
 file:
   absolute_path: /private/dbs/git/sumo-tableaggregator/tests/tmp/aggregated_summary.arrow
-  checksum_md5: e44af57c392be9a1cd980fcaff777b66
+  checksum_md5: af467579513f46370dda9d997140b186
   relative_path: ''
 fmu:
   aggregation:
-    id: d4cf25e5-a7d3-1822-fd6b-c9398aea03f7
+    id: d9651157-29cc-681a-da81-3f24bf72b6a8
     operation: collection
     realization_ids:
     - 0
