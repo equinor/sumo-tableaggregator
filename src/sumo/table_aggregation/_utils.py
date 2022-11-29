@@ -137,6 +137,34 @@ def stat_frame_to_feather(frame: pd.DataFrame, agg_meta: dict):
                   agg_meta, ["DATE"])
 
 
+def decide_name(namer):
+    """Gets name from list/pd.DataFrame.index or string
+    args:
+    namer (list, str, or pd.DataFrame.index): input for name
+    returns name (str)
+    """
+    logger = init_logging(__name__ + ".decide_name")
+    if isinstance(namer, str):
+        name = namer
+    else:
+        try:
+            namer = namer.tolist()
+        except AttributeError:
+            logger.warning("Input was not pd.DataFrame.columns")
+
+        if len(namer) == 2:
+            name = [col for col in namer if col != "REAL"].pop()
+        else:
+            if "BULK" in namer:
+                name = "volumes"
+            else:
+                name = "summary"
+            name = "aggregated_" + name
+
+    logger.debug("Name of object will be: %s", name)
+    return name
+
+
 def frame_to_feather(frame: pd.DataFrame, agg_meta: dict, table_type: str = None):
     """Writes arrow format from pd.DataFrame
     args:
@@ -144,6 +172,7 @@ def frame_to_feather(frame: pd.DataFrame, agg_meta: dict, table_type: str = None
     agg_meta (dict): Stub for aggregated meta to be written
     table_type (str): name to be put in metadata, if None, autodetection
     """
+    frame_cols = frame.columns.tolist()
     if not TMP.exists():
         TMP.mkdir()
 
@@ -151,18 +180,11 @@ def frame_to_feather(frame: pd.DataFrame, agg_meta: dict, table_type: str = None
         stat_frame_to_feather(frame, agg_meta)
     except IndexError:
 
-        frame_cols = frame.columns.tolist()
-        print(f"####{frame_cols}###")
         if table_type is not None:
-            name = table_type
-        elif len(frame_cols) == 2:
-            name = [col for col in frame_cols if col != "REAL"].pop()
+            namer = table_type
         else:
-            if "BULK" in frame_cols:
-                name = "volumes"
-            else:
-                name = "summary"
-            name = "aggregated_" + name
+            namer = frame_cols
+        name = decide_name(namer)
         print(f"Name: {name}")
         write_feather(frame, name, agg_meta, frame_cols)
 
@@ -174,12 +196,19 @@ def write_feather(frame: pd.DataFrame, name: str, agg_meta: dict, columns: list)
     agg_meta (dict): Stub for aggregated meta to be written
     columns (list): the column names in the frame
     """
-    file_name = TMP / (name + ".arrow")
+    file_name = TMP / (name.lower() + ".arrow")
     meta_name = TMP / f".{file_name.name}.yml"
 
     agg_meta["data"]["spec"]["columns"] = columns
+    agg_meta["data"]["name"] = name
+    agg_meta["display"]["name"] = name
     agg_meta["file"]["absolute_path"] = str(file_name.absolute())
+    agg_meta["file"]["relative_path"] = str(file_name)
     feather.write_feather(frame, dest=file_name)
+    try:
+        del agg_meta["_sumo"]
+    except KeyError:
+        print("Nothing to delete at _sumo")
     md5 = md5sum(file_name)
     agg_meta["file"]["checksum_md5"] = md5
     agg_meta["fmu"]["aggregation"]["id"] = uuid_from_string(md5)
@@ -425,7 +454,7 @@ def upload_aggregated(sumo: SumoClient, store_dir: str = "tmp"):
             continue
         meta = read_yaml(upload_file)
         respons = sumo.post("/objects", json=meta)
-        print(respons)
+        print((respons).json())
         file_count += 1
     logger.info("Uploaded %s files", file_count)
     return file_count
