@@ -230,17 +230,12 @@ class MetadataSet():
 
     """Class for arrangement of input to aggregation"""
 
-    def __init__(self, parent_id=None):
+    def __init__(self):
         """Sets _parameter_dict to empty dict"""
-        self._parent_id = parent_id
         self._parameter_dict = {}
         self._real_ids = set()
         self._uuids = set()
 
-    @property
-    def parent_id(self):
-        """Returns _parent_id attribute"""
-        return self._parent_id
 
     @property
     def parameter_dict(self) -> dict:
@@ -314,7 +309,7 @@ def split_results_and_meta(results: list) -> dict:
         meta.add_realisation(name, real["parameters"])
         blob_ids[name] = result["_id"]
     agg_meta = meta.base_meta(real_meta)
-    split_tup = (blob_ids, agg_meta, meta.real_ids, meta.parameter_dict)
+    split_tup = (parent_id, blob_ids, agg_meta, meta.real_ids, meta.parameter_dict)
     return split_tup
 
 

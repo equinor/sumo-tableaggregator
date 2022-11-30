@@ -16,9 +16,16 @@ class TableAggregator:
         sumo_env = kwargs.get("sumo_env", "prod")
         self._sumo = SumoClient(sumo_env)
         self._aggregated = None
-        self._object_ids, self._meta, self._real_ids, self._p_meta = (
+        self._agg_stats = None
+        (self._parent_id, self._object_ids,
+         self._meta, self._real_ids, self._p_meta) = (
             ut.query_for_tables(self.sumo, case_name, name)
         )
+
+    @property
+    def parent_id(self) -> str:
+        """Returns _parent_id attribute"""
+        return self._parent_id
 
     @property
     def sumo(self) -> SumoClient:
@@ -46,17 +53,36 @@ class TableAggregator:
         """Returns _meta attribute"""
         return self._meta
 
-    def aggregated(self, redo: bool = False) -> pd.DataFrame:
+    @property
+    def aggregated(self) -> pd.DataFrame:
+        """Returns the _aggregated attribute"""
+        if self._aggregated is None:
+            self.aggregate()
+
+        return self._aggregated
+
+    @property
+    def aggregated_stats(self) -> pd.DataFrame:
+        """Returns the _agg_stats attribute"""
+        return self._agg_stats
+
+    def aggregate(self):
         """Aggregates objects over realizations on disk
         args:
         redo (bool): shall self._aggregated be made regardless
         """
-        if redo or self._aggregated is None:
-            self._aggregated = ut.aggregate_objects(self.object_ids, self.sumo)
-        return self._aggregated
+        self._aggregated = ut.aggregate_objects(self.object_ids, self.sumo)
+
+    def add_statistics(self):
+        """Makes statistics from aggregated dataframe"""
+        self._agg_stats = ut.make_stat_aggregations(self.aggregated)
 
     def upload(self):
         """Uploads data to sumo
         """
-        ut.store_aggregated_objects(self._aggregated, self.base_meta)
-        ut.upload_aggregated(self.sumo, "tmp")
+        if self.aggregated is not None:
+            ut.store_aggregated_objects(self.aggregated, self.base_meta)
+        if self.aggregated_stats is not None:
+            ut.store_aggregated_objects(self.aggregated_stats, self.base_meta)
+
+        ut.upload_aggregated(self.sumo, self.parent_id, "tmp")
