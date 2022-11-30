@@ -230,11 +230,17 @@ class MetadataSet():
 
     """Class for arrangement of input to aggregation"""
 
-    def __init__(self):
+    def __init__(self, parent_id=None):
         """Sets _parameter_dict to empty dict"""
+        self._parent_id = parent_id
         self._parameter_dict = {}
         self._real_ids = set()
         self._uuids = set()
+
+    @property
+    def parent_id(self):
+        """Returns _parent_id attribute"""
+        return self._parent_id
 
     @property
     def parameter_dict(self) -> dict:
@@ -278,12 +284,24 @@ class MetadataSet():
         return agg_metadata
 
 
+def get_parent_id(result: dict) -> str:
+    """Fetches parent id from one elastic search hit
+    args:
+    result (dict): one hit
+    returns parent_id
+    """
+    parent_id = result["_source"]["_sumo"]["parent_object"]
+    return parent_id
+
+
 def split_results_and_meta(results: list) -> dict:
     """splits hits from sumo query
     results (list): query_results["hits"]["hist"]
     returns split_tup (tuple): tuple with split results
     """
     logger = init_logging(__name__ + ".split_result_and_meta")
+    parent_id = get_parent_id(results[0])
+    print(parent_id)
     meta = MetadataSet()
     blob_ids = {}
     for result in results:
@@ -439,7 +457,22 @@ def store_aggregated_objects(frame: pd.DataFrame, meta_stub: dict,
     logger.info("%s files produced", count)
 
 
-def upload_aggregated(sumo: SumoClient, store_dir: str = "tmp"):
+def meta_to_bytes(meta_path):
+    """
+    Given a path to a metadata file, find real fileread as bytes, return byte string.
+    args:
+    meta_path (str): name of metadatafile
+    returns byte_string : file as bytes
+    """
+    # Basically stolen from sumo.wrapper
+    path = meta_path.parent / meta_path.name[1:].replace(".yml", "")
+    with open(path, "rb") as stream:
+        byte_string = stream.read()
+
+    return byte_string
+
+
+def upload_aggregated(sumo: SumoClient, parent_id: str, store_dir: str = "tmp"):
     """Uploads files to sumo
     sumo (SumoClient): the client to use for uploading
     store_dir (str): name of folder where results are stored
@@ -453,8 +486,13 @@ def upload_aggregated(sumo: SumoClient, store_dir: str = "tmp"):
         if not upload_file.name.startswith("."):
             continue
         meta = read_yaml(upload_file)
-        respons = sumo.post("/objects", json=meta)
-        print((respons).json())
+        byte_string = meta_to_bytes(upload_file)
+        path = f"/objects('{parent_id}')"
+        response = sumo.post(path=path, json=meta)
+        print((response).json())
+        blob_url = response.json().get("blob_url")
+        response = sumo.blob_client.upload_blob(blob=byte_string, url=blob_url)
+        # return response
         file_count += 1
     logger.info("Uploaded %s files", file_count)
     return file_count
