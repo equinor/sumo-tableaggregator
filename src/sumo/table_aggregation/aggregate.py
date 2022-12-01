@@ -1,7 +1,7 @@
 """Contains classes for aggregation of tables"""
 import pandas as pd
 from sumo.wrapper import SumoClient
-import sumo.table_aggregation._utils as ut
+import sumo.table_aggregation.utilities as ut
 
 
 class TableAggregator:
