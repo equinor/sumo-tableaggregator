@@ -178,6 +178,7 @@ def frame_to_feather(frame: pd.DataFrame, agg_meta: dict, table_type: str = None
 
     try:
         stat_frame_to_feather(frame, agg_meta)
+
     except IndexError:
 
         if table_type is not None:
@@ -448,7 +449,7 @@ def store_aggregated_objects(frame: pd.DataFrame, meta_stub: dict,
     if withstats:
         print("Making stats!")
         stat_frame = make_stat_aggregations(frame)
-        frame_to_feather(stat_frame, meta_stub)
+        stat_frame_to_feather(stat_frame, meta_stub)
     logger.info("%s files produced", count)
 
 

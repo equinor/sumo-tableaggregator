@@ -15,6 +15,7 @@ class TableAggregator:
         """
         sumo_env = kwargs.get("sumo_env", "prod")
         self._sumo = SumoClient(sumo_env)
+        self._tmp_folder = ut.TMP
         self._aggregated = None
         self._agg_stats = None
         (self._parent_id, self._object_ids,
@@ -83,6 +84,15 @@ class TableAggregator:
         if self.aggregated is not None:
             ut.store_aggregated_objects(self.aggregated, self.base_meta)
         if self.aggregated_stats is not None:
-            ut.store_aggregated_objects(self.aggregated_stats, self.base_meta)
+            ut.stat_frame_to_feather(self.aggregated_stats, self.base_meta)
+            # ut.store_aggregated_objects(self.aggregated_stats, self.base_meta)
 
-        ut.upload_aggregated(self.sumo, self.parent_id, "tmp")
+        ut.upload_aggregated(self.sumo, self.parent_id, self._tmp_folder)
+
+    def __del__(self):
+        """Deletes tmp folder"""
+        print("Deleting files")
+        # for single_file in self._tmp_folder.iterdir():
+        #     single_file.unlink()
+        #
+        # self._tmp_folder.rmdir()
