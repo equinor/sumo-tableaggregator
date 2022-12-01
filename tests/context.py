@@ -22,7 +22,7 @@ def add_path():
 add_path()
 
 from sumo.table_aggregation import TableAggregator
-from sumo.table_aggregation import _utils as ut
+from sumo.table_aggregation import utilities as ut
 
 # Class and exception stolen from realpython
 # https://realpython.com/python-timer/
@@ -45,11 +45,11 @@ class Timer:
 
         self._start_time = time.perf_counter()
 
-    def stop(self):
+    def stop(self, name=""):
         """Stop the timer, and report the elapsed time"""
         if self._start_time is None:
             raise TimerError("Timer is not running. Use .start() to start it")
 
         elapsed_time = time.perf_counter() - self._start_time
-        self._start_time = None
-        print(f"Elapsed time: {elapsed_time:0.4f} seconds")
+        print(f"{name} Elapsed time: {elapsed_time:0.4f} seconds")
+        self._start_time = time.perf_counter()
