@@ -1,1 +1,1 @@
-from sumo.table_aggregation._aggregate import TableAggregator
+from sumo.table_aggregation.aggregate import TableAggregator

@@ -172,6 +172,7 @@ def frame_to_feather(frame: pd.DataFrame, agg_meta: dict, table_type: str = None
     agg_meta (dict): Stub for aggregated meta to be written
     table_type (str): name to be put in metadata, if None, autodetection
     """
+    logger = init_logging(__name__ + ".frame_to_feather")
     frame_cols = frame.columns.tolist()
     if not TMP.exists():
         TMP.mkdir()
@@ -186,7 +187,7 @@ def frame_to_feather(frame: pd.DataFrame, agg_meta: dict, table_type: str = None
         else:
             namer = frame_cols
         name = decide_name(namer)
-        print(f"Name: {name}")
+        logger.debug("Name: %s", name)
         write_feather(frame, name, agg_meta, frame_cols)
 
 
@@ -197,6 +198,7 @@ def write_feather(frame: pd.DataFrame, name: str, agg_meta: dict, columns: list)
     agg_meta (dict): Stub for aggregated meta to be written
     columns (list): the column names in the frame
     """
+    logger = init_logging(__name__ + ".write_feather")
     file_name = TMP / (name.lower() + ".arrow")
     meta_name = TMP / f".{file_name.name}.yml"
 
@@ -209,7 +211,7 @@ def write_feather(frame: pd.DataFrame, name: str, agg_meta: dict, columns: list)
     try:
         del agg_meta["_sumo"]
     except KeyError:
-        print("Nothing to delete at _sumo")
+        logger.debug("Nothing to delete at _sumo")
     md5 = md5sum(file_name)
     agg_meta["file"]["checksum_md5"] = md5
     agg_meta["fmu"]["aggregation"]["id"] = uuid_from_string(md5)
@@ -297,7 +299,7 @@ def split_results_and_meta(results: list) -> dict:
     """
     logger = init_logging(__name__ + ".split_result_and_meta")
     parent_id = get_parent_id(results[0])
-    print(parent_id)
+    logger.debug(parent_id)
     meta = MetadataSet()
     blob_ids = {}
     for result in results:
@@ -416,7 +418,7 @@ def make_stat_aggregations(frame: pd.DataFrame,
     non_aggs = ["DATE", "REAL", "ENSEMBLE"]
     stat_curves = [name for name in frame.columns if name not in non_aggs]
     logger.info("Will do stats on these vectors %s ", stat_curves)
-    print(stat_curves)
+    logger.debug(stat_curves)
     stats = frame.pivot_table(index="DATE", values=stat_curves,
                               aggfunc=aggfuncs)
     return stats
@@ -447,7 +449,7 @@ def store_aggregated_objects(frame: pd.DataFrame, meta_stub: dict,
         frame_to_feather(export_frame, meta_stub)
         count += 1
     if withstats:
-        print("Making stats!")
+        logger.info("Making stats!")
         stat_frame = make_stat_aggregations(frame)
         stat_frame_to_feather(stat_frame, meta_stub)
     logger.info("%s files produced", count)
@@ -476,7 +478,7 @@ def upload_aggregated(sumo: SumoClient, parent_id: str, store_dir: str = "tmp"):
     logger = init_logging(__name__ + ".upload_aggregated")
     store = Path(store_dir)
     upload_files = list(store.glob("*"))
-    print(upload_files)
+    logger.debug(upload_files)
     file_count = 0
     for upload_file in upload_files:
         if not upload_file.name.startswith("."):
@@ -485,7 +487,7 @@ def upload_aggregated(sumo: SumoClient, parent_id: str, store_dir: str = "tmp"):
         byte_string = meta_to_bytes(upload_file)
         path = f"/objects('{parent_id}')"
         response = sumo.post(path=path, json=meta)
-        print((response).json())
+        logger.debug(response.json())
         blob_url = response.json().get("blob_url")
         response = sumo.blob_client.upload_blob(blob=byte_string, url=blob_url)
         # return response

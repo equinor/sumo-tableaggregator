@@ -91,8 +91,7 @@ class TableAggregator:
 
     def __del__(self):
         """Deletes tmp folder"""
-        print("Deleting files")
-        # for single_file in self._tmp_folder.iterdir():
-        #     single_file.unlink()
-        #
-        # self._tmp_folder.rmdir()
+        for single_file in self._tmp_folder.iterdir():
+            single_file.unlink()
+
+        self._tmp_folder.rmdir()
