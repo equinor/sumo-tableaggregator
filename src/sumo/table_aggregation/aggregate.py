@@ -7,14 +7,15 @@ import sumo.table_aggregation.utilities as ut
 class TableAggregator:
 
     """Class for aggregating tables"""
-    def __init__(self, case_name: str, name: str, **kwargs):
+    def __init__(self, case_name: str, name: str, token: str = None, **kwargs):
         """Reads the data to be aggregated
         args
         case_name (str): name of sumo case
         name (str): name of tables to aggregate
+        token (str): authentication token
         """
         sumo_env = kwargs.get("sumo_env", "prod")
-        self._sumo = SumoClient(sumo_env)
+        self._sumo = SumoClient(sumo_env, token)
         self._tmp_folder = ut.TMP
         self._aggregated = None
         self._agg_stats = None
