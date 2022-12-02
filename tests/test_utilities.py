@@ -7,10 +7,8 @@ import pyarrow as pa
 from pyarrow import feather
 from sumo.wrapper import SumoClient
 import pytest
-from context import ut, Timer
+from context import ut
 
-
-TIMER = Timer()
 
 TEST_DATA = Path(__file__).parent / "data"
 TEST_ARROW_FILE = TEST_DATA / "2_columns_data.arrow"
@@ -30,7 +28,7 @@ def fixture_sumo(sumo_env="prod"):
 
 
 @pytest.fixture(name="query_results")
-def fixture_query_results(sumo, case_name="drogon_design_2022_11-01",
+def fixture_query_results(sumo, case_name="drogon_design-2022-12-01",
                           name="summary"):
     """Returns results from given
     args:
@@ -56,6 +54,18 @@ def fixture_ids_and_friends(query_file=QUERY_FILE):
     """
     query_results = read_json(query_file)
     return ut.get_blob_ids_w_metadata(query_results)
+
+
+pytest.fixture(name="agg_frame")
+def fixture_agg_frame(sumo, ids_and_friends):
+    """Returns aggregated frame
+    args:
+    ids (dict): dictionary with name as key, value object id
+    returns frame (pd.DataFrame)
+    """
+    ids = ids_and_friends[1]
+    results = ut.aggregate_objects(ids, sumo)
+    return results
 
 
 def write_json(result_file, results):
@@ -151,6 +161,38 @@ def assert_uuid_dict(uuid_dict):
         assert_correct_uuid(uuid_dict[key])
 
 
+def assert_name(name, func_name, typ):
+    """Runs assert statement for test_decide_name
+    args:
+    name (str): correct value
+    func_name (str): return value from function
+    typ(str): type to be printed
+    """
+    print(f"{typ}: ")
+    assert_mess = f"{typ} gives gives wrong value ({func_name} vs {name})"
+    assert name == func_name, assert_mess
+
+
+def test_decide_name():
+    """Tests function decide_name in utils
+    """
+    name = "tudels"
+    assert_name(name, ut.decide_name(name), "str")
+
+    namer = ["REAL", name]
+    assert_name(name, ut.decide_name(namer), "list")
+
+    namer.append("BULK")
+    assert_name("aggregated_volumes", ut.decide_name(namer), "Vol list")
+
+    namer.remove("BULK")
+    namer.append("Haya")
+    assert_name("aggregated_summary", ut.decide_name(namer), "Bulk less list")
+
+    frame = pd.DataFrame({"REAL": [1, 2, 3], name: [4, 9, 0]})
+    assert_name(name, ut.decide_name(frame.columns), "pd.DataFrame.index")
+
+
 def test_read_arrow_to_frame(pandas_frame, arrow_table):
     """tests function arrow_to_frame
     args:
@@ -167,7 +209,8 @@ def test_get_blob_ids_w_metadata(ids_and_friends):
     args:
     ids_and_friends (tuple):  results from function
     """
-    object_ids, meta, real_ids, p_dict = ids_and_friends
+    parent_id, object_ids, meta, real_ids, p_dict = ids_and_friends
+    assert isinstance(parent_id, str)
     assert_uuid_dict(object_ids)
     assert isinstance(meta, dict), f"Meta is not a dict, {type(meta)}"
     ass_mess = f"Real ids are not tuple, or list {type(real_ids)}"
@@ -182,24 +225,19 @@ def test_aggregation(ids_and_friends, sumo):
     ids_and_friends (tuple): results from function blob_ids_w_metadata
     sumo (SumoClient instance): the client to use during aggregation
     """
-    ids = ids_and_friends[0]
-    TIMER.start()
+    ids = ids_and_friends[1]
     results = ut.aggregate_objects(ids, sumo)
-    TIMER.stop()
     results.to_csv(AGGREGATED_CSV)
-    # print(results.head())
 
 
-def test_store_aggregated_objects(ids_and_friends, file_name=MINIAGG_CSV):
+def test_store_aggregated_objects(ids_and_friends, sumo):
     """Tests function store_aggregregated_results
     args:
     file_name (str, or posix path): file to read from
     """
-    meta_stub = ids_and_friends[1]
-    frame = pd.read_csv(file_name)
-    TIMER.start()
-    ut.store_aggregated_objects(frame, meta_stub)
-    TIMER.stop()
+    ids, meta = ids_and_friends[1:3]
+    agg_frame = ut.aggregate_objects(ids, sumo)
+    ut.store_aggregated_objects(agg_frame, meta)
     assert_file_and_meta_couples(TMP)
 
 
@@ -217,5 +255,5 @@ def test_upload_aggregated(sumo, store_folder=TMP):
     sumo (SumoClient instance): the client to use for uploading
     store_folder (str): folder containing results
     """
-    count = ut.upload_aggregated(sumo, store_folder)
-    assert count == 3, f"Not uploaded all files ({count})"
+    count = ut.upload_aggregated(sumo, "17c56e33-38cd-f8d4-3e83-ec2d16a85327", store_folder)
+    assert count == 4, f"Not uploaded all files ({count})"
