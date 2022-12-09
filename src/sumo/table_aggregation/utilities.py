@@ -111,30 +111,22 @@ def arrow_to_table(blob_object) -> pa.Table:
     return table
 
 
-def stat_frame_to_feather(frame: pd.DataFrame, agg_meta: dict):
+def stat_frame_to_feather(frame: pd.DataFrame, agg_meta: dict, name: str):
     """Writes arrow format from pd.DataFrame with two multilevel index
     args:
     frame (pd.DataFrame): the data to write
     agg_meta (dict): Stub for aggregated meta to be written
+    name (str): name of statistic
     """
-    try:
-        agg_types = frame.columns.get_level_values(1)
-        names = frame.columns.get_level_values(0)
+    frame_cols = frame.columns
+    for stat_type in frame_cols:
 
-    except IndexError as ierr:
-        raise IndexError("This is not a dataframe with statistics") from ierr
-
-    for agg_type in agg_types:
-
-        for name in names:
-            agg_frame = pd.DataFrame(frame[name][agg_type])
+            agg_frame = pd.DataFrame(frame[stat_type])
             agg_frame.columns = [name]
             frame_cols = agg_frame.columns.tolist()
             # agg_meta["aggregation"] =  agg_meta.get("aggregation", {})
-            agg_meta["fmu"]["aggregation"]["operation"] = agg_type
-            write_feather(agg_frame, f"{name}_{agg_type}", agg_meta, frame_cols)
-    write_feather(agg_frame.reset_index()[["DATE"]], "DATE_for_agg",
-                  agg_meta, ["DATE"])
+            agg_meta["fmu"]["aggregation"]["operation"] = stat_type
+            write_feather(agg_frame, f"{name}_{stat_type}", agg_meta, frame_cols)
 
 
 def decide_name(namer):
@@ -177,18 +169,13 @@ def frame_to_feather(frame: pd.DataFrame, agg_meta: dict, table_type: str = None
     if not TMP.exists():
         TMP.mkdir()
 
-    try:
-        stat_frame_to_feather(frame, agg_meta)
-
-    except IndexError:
-
-        if table_type is not None:
-            namer = table_type
-        else:
-            namer = frame_cols
-        name = decide_name(namer)
-        logger.debug("Name: %s", name)
-        write_feather(frame, name, agg_meta, frame_cols)
+    if table_type is not None:
+        namer = table_type
+    else:
+        namer = frame_cols
+    name = decide_name(namer)
+    logger.debug("Name: %s", name)
+    write_feather(frame, name, agg_meta, frame_cols)
 
 
 def write_feather(frame: pd.DataFrame, name: str, agg_meta: dict, columns: list):
@@ -406,29 +393,32 @@ def p90(array_like):
     return np.percentile(array_like, 10)
 
 
-def make_stat_aggregations(frame: pd.DataFrame,
+def make_stat_aggregations(frame: pd.DataFrame, meta_stub,
                            aggfuncs: list = ("mean", p10, p90)):
     """Makes statistical aggregations from dataframe
     args
     frame (pd.DataFrame): data to process
+    meta_stub (dict): dictionary that is start of creating proper metadata
     aggfuncs (list): what aggregations to process
-
     """
     logger = init_logging(__name__ + ".make_stat_aggregations")
     non_aggs = ["DATE", "REAL", "ENSEMBLE"]
     stat_curves = [name for name in frame.columns if name not in non_aggs]
     logger.info("Will do stats on these vectors %s ", stat_curves)
     logger.debug(stat_curves)
-    stats = frame.pivot_table(index="DATE", values=stat_curves,
-                              aggfunc=aggfuncs)
+    for curve in stat_curves:
+        stats = frame.groupby("DATE")[curve].agg(aggfuncs)
+        print(stats)
+        stat_frame_to_feather(stats, meta_stub, curve)
     return stats
 
 
 def store_aggregated_objects(frame: pd.DataFrame, meta_stub: dict,
                              keep_grand_aggregation: bool = True,
-                             withstats: bool = False):
+                             ):
     """Stores results in temp folder
     frame (pd.DataFrame): the dataframe to store
+    meta_stub (dict): dictionary that is start of creating proper metadata
     keep_grand_aggregation (bool): store copy of the aggregated or not
     withstats (bool): make statistical vectors as well
     """
@@ -448,11 +438,19 @@ def store_aggregated_objects(frame: pd.DataFrame, meta_stub: dict,
         export_frame = frame[keep_cols]
         frame_to_feather(export_frame, meta_stub)
         count += 1
-    if withstats:
-        logger.info("Making stats!")
-        stat_frame = make_stat_aggregations(frame)
-        stat_frame_to_feather(stat_frame, meta_stub)
     logger.info("%s files produced", count)
+
+
+# def pyarrow_to_bytes(frame):
+#     """Writing frame to bytestring directly
+#     args:
+#     """
+#     sink = pa.BufferOutputStream()
+#     with pa.ipc.new_stream(sink) as writer:
+#
+#         # writer = pa.ipc.new_stream(sink, batch.schema)
+#
+#         writer.write_batch(batch)
 
 
 def meta_to_bytes(meta_path):

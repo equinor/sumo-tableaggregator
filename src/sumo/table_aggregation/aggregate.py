@@ -62,31 +62,29 @@ class TableAggregator:
 
         return self._aggregated
 
-    @property
-    def aggregated_stats(self) -> pd.DataFrame:
-        """Returns the _agg_stats attribute"""
-        return self._agg_stats
-
+# @property
+# def aggregated_stats(self) -> pd.DataFrame:
+#     """Returns the _agg_stats attribute"""
+#     return self._agg_stats
+#
     def aggregate(self):
         """Aggregates objects over realizations on disk
         args:
         redo (bool): shall self._aggregated be made regardless
         """
         self._aggregated = ut.aggregate_objects(self.object_ids, self.sumo)
+        self._aggregated.to_csv("Aggregated.csv", index=False)
+        ut.store_aggregated_objects(self.aggregated, self.base_meta)
 
-    def add_statistics(self):
+    def write_statistics(self):
         """Makes statistics from aggregated dataframe"""
-        self._agg_stats = ut.make_stat_aggregations(self.aggregated)
+        ut.make_stat_aggregations(self.aggregated, self.base_meta)
 
     def upload(self):
         """Uploads data to sumo
         """
         if self.aggregated is not None:
             ut.store_aggregated_objects(self.aggregated, self.base_meta)
-        if self.aggregated_stats is not None:
-            ut.stat_frame_to_feather(self.aggregated_stats, self.base_meta)
-            # ut.store_aggregated_objects(self.aggregated_stats, self.base_meta)
-
         ut.upload_aggregated(self.sumo, self.parent_id, self._tmp_folder)
 
     def __del__(self):

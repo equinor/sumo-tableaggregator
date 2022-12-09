@@ -45,15 +45,13 @@ class Timer:
 
         self._start_time = time.perf_counter()
 
-    def stop(self, name="", restart=False):
+    def stop(self, restart=False):
         """Stop the timer, and report the elapsed time"""
         if self._start_time is None:
             raise TimerError("Timer is not running. Use .start() to start it")
 
         elapsed_time = time.perf_counter() - self._start_time
         report = ""
-        if name:
-            report = f"{name}: "
         report += f"Elapsed time: {elapsed_time:0.4f} seconds"
         print(report)
         self._start_time = None
