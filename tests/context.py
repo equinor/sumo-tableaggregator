@@ -34,7 +34,8 @@ class TimerError(Exception):
 
 class Timer:
 
-    """ Class for timing the tests"""
+    """Class for timing the tests"""
+
     def __init__(self):
         self._start_time = None
 

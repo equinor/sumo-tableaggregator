@@ -7,6 +7,7 @@ import sumo.table_aggregation.utilities as ut
 class TableAggregator:
 
     """Class for aggregating tables"""
+
     def __init__(self, case_name: str, name: str, token: str = None, **kwargs):
         """Reads the data to be aggregated
         args
@@ -19,10 +20,13 @@ class TableAggregator:
         self._tmp_folder = ut.TMP
         self._aggregated = None
         self._agg_stats = None
-        (self._parent_id, self._object_ids,
-         self._meta, self._real_ids, self._p_meta) = (
-            ut.query_for_tables(self.sumo, case_name, name)
-        )
+        (
+            self._parent_id,
+            self._object_ids,
+            self._meta,
+            self._real_ids,
+            self._p_meta,
+        ) = ut.query_for_tables(self.sumo, case_name, name)
 
     @property
     def parent_id(self) -> str:
@@ -46,8 +50,7 @@ class TableAggregator:
 
     @property
     def parameters(self) -> dict:
-        """Returns the _p_meta attribute
-        """
+        """Returns the _p_meta attribute"""
         return self._p_meta
 
     @property
@@ -63,11 +66,11 @@ class TableAggregator:
 
         return self._aggregated
 
-# @property
-# def aggregated_stats(self) -> pd.DataFrame:
-#     """Returns the _agg_stats attribute"""
-#     return self._agg_stats
-#
+    # @property
+    # def aggregated_stats(self) -> pd.DataFrame:
+    #     """Returns the _agg_stats attribute"""
+    #     return self._agg_stats
+    #
     def aggregate(self):
         """Aggregates objects over realizations on disk
         args:
@@ -82,8 +85,7 @@ class TableAggregator:
         ut.make_stat_aggregations(self.aggregated, self.base_meta)
 
     def upload(self):
-        """Uploads data to sumo
-        """
+        """Uploads data to sumo"""
         if self.aggregated is not None:
             ut.store_aggregated_objects(self.aggregated, self.base_meta)
         ut.upload_aggregated(self.sumo, self.parent_id, self._tmp_folder)

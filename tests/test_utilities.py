@@ -28,8 +28,7 @@ def fixture_sumo(sumo_env="prod"):
 
 
 @pytest.fixture(name="query_results")
-def fixture_query_results(sumo, case_name="drogon_design-2022-12-01",
-                          name="summary"):
+def fixture_query_results(sumo, case_name="drogon_design-2022-12-01", name="summary"):
     """Returns results from given
     args:
     sumo (SumoClient instance): the client to use
@@ -57,6 +56,8 @@ def fixture_ids_and_friends(query_file=QUERY_FILE):
 
 
 pytest.fixture(name="agg_frame")
+
+
 def fixture_agg_frame(sumo, ids_and_friends):
     """Returns aggregated frame
     args:
@@ -99,8 +100,7 @@ def assert_file_and_meta_couples(folder):
     assert len(all_hits) % 2 == 0
     the_files = [hit.name for hit in all_hits if not hit.name.startswith(".")]
     the_metas = [
-        hit.name[1:].replace(".yml", "")
-        for hit in all_hits if hit.name.startswith(".")
+        hit.name[1:].replace(".yml", "") for hit in all_hits if hit.name.startswith(".")
     ]
     for name in the_metas:
         assert name in the_files, f"{name} does not have a corresponding file"
@@ -174,8 +174,7 @@ def assert_name(name, func_name, typ):
 
 
 def test_decide_name():
-    """Tests function decide_name in utils
-    """
+    """Tests function decide_name in utils"""
     name = "tudels"
     assert_name(name, ut.decide_name(name), "str")
 
@@ -255,5 +254,7 @@ def test_upload_aggregated(sumo, store_folder=TMP):
     sumo (SumoClient instance): the client to use for uploading
     store_folder (str): folder containing results
     """
-    count = ut.upload_aggregated(sumo, "17c56e33-38cd-f8d4-3e83-ec2d16a85327", store_folder)
+    count = ut.upload_aggregated(
+        sumo, "17c56e33-38cd-f8d4-3e83-ec2d16a85327", store_folder
+    )
     assert count == 4, f"Not uploaded all files ({count})"

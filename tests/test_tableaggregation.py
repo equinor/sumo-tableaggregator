@@ -2,8 +2,7 @@
 import logging
 from context import TableAggregator, Timer
 
-logging.basicConfig(level="DEBUG",
-                    format="%(name)s %(levelname)s: %(message)s")
+logging.basicConfig(level="DEBUG", format="%(name)s %(levelname)s: %(message)s")
 
 LOGGER = logging.getLogger()
 
@@ -17,11 +16,22 @@ def test_table_aggregator():
     timer = Timer()
     timer.start()
     print(aggregator.object_ids)
-    timer.stop("Found object ids")
+    print("Fetched ids")
+    timer.stop()
+    timer.start()
     aggregator.aggregate()
     timer.stop("Aggregated")
-    aggregator.add_statistics()
-    timer.stop("Added statistics")
+    print("Aggregated")
+    timer.stop()
+    timer.start()
+    aggregator.write_statistics()
+    print("Added statistics")
+    timer.stop()
+    timer.start()
     aggregator.upload()
-    timer.stop("Uploaded")
+    timer.stop()
     print("Goody")
+
+
+if __name__ == "__main__":
+    test_table_aggregator()

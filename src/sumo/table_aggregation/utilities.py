@@ -71,6 +71,7 @@ def uuid_from_string(string: str) -> str:
     """
     return str(uuid.UUID(hashlib.md5(string.encode("utf-8")).hexdigest()))
 
+
 # END of steal
 
 
@@ -121,12 +122,12 @@ def stat_frame_to_feather(frame: pd.DataFrame, agg_meta: dict, name: str):
     frame_cols = frame.columns
     for stat_type in frame_cols:
 
-            agg_frame = pd.DataFrame(frame[stat_type])
-            agg_frame.columns = [name]
-            frame_cols = agg_frame.columns.tolist()
-            # agg_meta["aggregation"] =  agg_meta.get("aggregation", {})
-            agg_meta["fmu"]["aggregation"]["operation"] = stat_type
-            write_feather(agg_frame, f"{name}_{stat_type}", agg_meta, frame_cols)
+        agg_frame = pd.DataFrame(frame[stat_type])
+        agg_frame.columns = [name]
+        frame_cols = agg_frame.columns.tolist()
+        # agg_meta["aggregation"] =  agg_meta.get("aggregation", {})
+        agg_meta["fmu"]["aggregation"]["operation"] = stat_type
+        write_feather(agg_frame, f"{name}_{stat_type}", agg_meta, frame_cols)
 
 
 def decide_name(namer):
@@ -216,7 +217,7 @@ def get_blob(blob_id: str, sumo: SumoClient):
     return blob
 
 
-class MetadataSet():
+class MetadataSet:
 
     """Class for arrangement of input to aggregation"""
 
@@ -225,7 +226,6 @@ class MetadataSet():
         self._parameter_dict = {}
         self._real_ids = set()
         self._uuids = set()
-
 
     @property
     def parameter_dict(self) -> dict:
@@ -305,7 +305,7 @@ def split_results_and_meta(results: list) -> dict:
 
 def get_blob_ids_w_metadata(query_results: dict) -> dict:
     """splits query results
-       get_results ()
+    get_results ()
     """
     logger = init_logging(__name__ + ".get_blob_ids_w_meta")
     total_count = query_results["hits"]["total"]["value"]
@@ -317,16 +317,17 @@ def get_blob_ids_w_metadata(query_results: dict) -> dict:
     return_count = len(hits)
     if return_count < total_count:
         message = (
-            "Your query returned less than the total number of hits\n" +
-            f"({return_count} vs {total_count}). You might wanna rerun \n" +
-            f"the query with size set to {total_count}"
+            "Your query returned less than the total number of hits\n"
+            + f"({return_count} vs {total_count}). You might wanna rerun \n"
+            + f"the query with size set to {total_count}"
         )
         warnings.warn(message)
     return split_results_and_meta(hits)
 
 
-def query_sumo(sumo: SumoClient, case_name: str, name: str,
-               tag: str = "", content: str = "depth") -> tuple:
+def query_sumo(
+    sumo: SumoClient, case_name: str, name: str, tag: str = "", content: str = "depth"
+) -> tuple:
     """Fetches blob ids for relevant tables, collates metadata
     args:
     case_name (str): name of case
@@ -336,8 +337,9 @@ def query_sumo(sumo: SumoClient, case_name: str, name: str,
     sumo_env (str): what environment to communicate with
     """
     logger = init_logging(__name__ + ".query_sumo")
-    query = (f"fmu.case.name:{case_name} AND data.name:{name} " +
-             f"AND data.content:{content} AND class:table"
+    query = (
+        f"fmu.case.name:{case_name} AND data.name:{name} "
+        + f"AND data.content:{content} AND class:table"
     )
     if tag:
         query += f" AND data.tagname:{tag}"
@@ -346,8 +348,9 @@ def query_sumo(sumo: SumoClient, case_name: str, name: str,
     return query_results
 
 
-def query_for_tables(sumo: SumoClient, case_name: str, name: str,
-                     tag: str = "", content: str = "depth") -> tuple:
+def query_for_tables(
+    sumo: SumoClient, case_name: str, name: str, tag: str = "", content: str = "depth"
+) -> tuple:
     """Fetches blob ids for relevant tables, collates metadata
     args:
     case_name (str): name of case
@@ -393,8 +396,9 @@ def p90(array_like):
     return np.percentile(array_like, 10)
 
 
-def make_stat_aggregations(frame: pd.DataFrame, meta_stub,
-                           aggfuncs: list = ("mean", p10, p90)):
+def make_stat_aggregations(
+    frame: pd.DataFrame, meta_stub, aggfuncs: list = ("mean", p10, p90)
+):
     """Makes statistical aggregations from dataframe
     args
     frame (pd.DataFrame): data to process
@@ -413,9 +417,11 @@ def make_stat_aggregations(frame: pd.DataFrame, meta_stub,
     return stats
 
 
-def store_aggregated_objects(frame: pd.DataFrame, meta_stub: dict,
-                             keep_grand_aggregation: bool = True,
-                             ):
+def store_aggregated_objects(
+    frame: pd.DataFrame,
+    meta_stub: dict,
+    keep_grand_aggregation: bool = True,
+):
     """Stores results in temp folder
     frame (pd.DataFrame): the dataframe to store
     meta_stub (dict): dictionary that is start of creating proper metadata
@@ -495,8 +501,9 @@ def upload_aggregated(sumo: SumoClient, parent_id: str, store_dir: str = "tmp"):
     # store.rmdir()
 
 
-def convert_metadata(single_metadata: dict, real_ids: list, context="fmu",
-                     operation: str = "collection"):
+def convert_metadata(
+    single_metadata: dict, real_ids: list, context="fmu", operation: str = "collection"
+):
     """Makes metadata for the aggregated data from single metadata
     args:
     single_metadata (dict): one single metadata dict
