@@ -92,7 +92,10 @@ class TableAggregator:
 
     def __del__(self):
         """Deletes tmp folder"""
-        for single_file in self._tmp_folder.iterdir():
-            single_file.unlink()
+        try:
+            for single_file in self._tmp_folder.iterdir():
+                single_file.unlink()
 
-        self._tmp_folder.rmdir()
+            self._tmp_folder.rmdir()
+        except FileNotFoundError:
+            print("No tmp folder exists, talk about failing fast :-)")

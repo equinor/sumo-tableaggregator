@@ -3,7 +3,7 @@ import logging
 import warnings
 import hashlib
 import uuid
-from typing import Dict
+from typing import Dict, Union
 from pathlib import Path
 import yaml
 import numpy as np
@@ -124,7 +124,11 @@ def stat_frame_to_feather(frame: pd.DataFrame, agg_meta: dict, name: str):
 
         agg_frame = pd.DataFrame(frame[stat_type])
         agg_frame.columns = [name]
-        frame_cols = agg_frame.columns.tolist()
+        try:
+            frame_cols = agg_frame.column_names
+        except AttributeError:
+            frame_cols = agg_frame.columns.tolist()
+
         # agg_meta["aggregation"] =  agg_meta.get("aggregation", {})
         agg_meta["fmu"]["aggregation"]["operation"] = stat_type
         write_feather(agg_frame, f"{name}_{stat_type}", agg_meta, frame_cols)
@@ -364,8 +368,24 @@ def query_for_tables(
     return results
 
 
-def aggregate_objects(object_ids: Dict[str, str], sumo: SumoClient) -> pd.DataFrame:
+def aggregate_arrow(object_ids: Dict[str, str], sumo: SumoClient) -> pa.Table:
     """Aggregates the individual files into one large pyarrow table
+    args:
+    object_ids (dict): key is real nr, value is object id
+    returns: aggregated (pa.Table): the aggregated results
+    """
+    aggregated = []
+    for real_nr, object_id in object_ids.items():
+        real_table = get_object(object_id, sumo, False)
+        rows = real_table.shape[0]
+        aggregated.append(real_table.add_column(0, "REAL", pa.array([real_nr] * rows)))
+    aggregated = pa.concat_tables(aggregated)
+
+    return aggregated
+
+
+def aggregate_pandas(object_ids: Dict[str, str], sumo: SumoClient) -> pd.DataFrame:
+    """Aggregates the individual files into one large pandas dataframe
     args:
     object_ids (dict): key is real nr, value is object id
     returns: aggregated (pd.DataFrame): the aggregated results
@@ -377,6 +397,20 @@ def aggregate_objects(object_ids: Dict[str, str], sumo: SumoClient) -> pd.DataFr
         aggregated.append(real_frame)
     aggregated = pd.concat(aggregated)
     aggregated["REAL"] = aggregated["REAL"].astype(int)
+    return aggregated
+
+
+def aggregate_objects(object_ids: Dict[str, str], sumo: SumoClient,
+                      pandas: bool = True) -> Union[pd.DataFrame, pa.Table]:
+    """Aggregates the individual files into one large object
+    args:
+    object_ids (dict): key is real nr, value is object id
+    returns: aggregated (pd.DataFrame): the aggregated results
+    """
+    if pandas:
+        aggregated = aggregate_pandas(object_ids, sumo)
+    else:
+        aggregated = aggregate_arrow(object_ids, sumo)
     return aggregated
 
 
