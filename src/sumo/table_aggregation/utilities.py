@@ -446,7 +446,7 @@ def make_stat_aggregations(
     logger.debug(stat_curves)
     for curve in stat_curves:
         stats = frame.groupby("DATE")[curve].agg(aggfuncs)
-        print(stats)
+        logger.debug(stats)
         stat_frame_to_feather(stats, meta_stub, curve)
     return stats
 

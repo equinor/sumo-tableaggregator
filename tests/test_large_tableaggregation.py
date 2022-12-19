@@ -10,7 +10,7 @@ LOGGER = logging.getLogger()
 def test_table_aggregator():
 
     """Tests TableAggregator"""
-    test_case_name = "drogon_design-2022-12-01"
+    test_case_name = "drogon_design-2022-11-15"
     test_table_name = "summary"
     timer = Timer()
     timer.start()
