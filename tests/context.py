@@ -54,7 +54,7 @@ class Timer:
         elapsed_time = time.perf_counter() - self._start_time
         report = ""
         report += f"Elapsed time: {elapsed_time:0.4f} seconds"
-        print(report)
         self._start_time = None
         if restart:
             self.start()
+        return report
