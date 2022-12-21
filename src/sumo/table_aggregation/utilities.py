@@ -1,4 +1,5 @@
 """Utils for table aggregation"""
+import sys
 import logging
 import warnings
 import hashlib
@@ -112,12 +113,13 @@ def arrow_to_table(blob_object) -> pa.Table:
     return table
 
 
-def stat_frame_to_feather(frame: pd.DataFrame, agg_meta: dict, name: str):
+def stat_frame_to_feather(frame: pd.DataFrame, agg_meta: dict, name: str, iteration: str):
     """Writes arrow format from pd.DataFrame with two multilevel index
     args:
     frame (pd.DataFrame): the data to write
     agg_meta (dict): Stub for aggregated meta to be written
     name (str): name of statistic
+    iteration (str): iteration id
     """
     frame_cols = frame.columns
     for stat_type in frame_cols:
@@ -131,7 +133,7 @@ def stat_frame_to_feather(frame: pd.DataFrame, agg_meta: dict, name: str):
 
         # agg_meta["aggregation"] =  agg_meta.get("aggregation", {})
         agg_meta["fmu"]["aggregation"]["operation"] = stat_type
-        write_feather(agg_frame, f"{name}_{stat_type}", agg_meta, frame_cols)
+        write_feather(agg_frame, f"{name}_{stat_type}--iter-{iteration}", agg_meta, frame_cols)
 
 
 def decide_name(namer):
@@ -162,11 +164,12 @@ def decide_name(namer):
     return name
 
 
-def frame_to_feather(frame: pd.DataFrame, agg_meta: dict, table_type: str = None):
+def frame_to_feather(frame: pd.DataFrame, agg_meta: dict, iteration: str, table_type: str = None):
     """Writes arrow format from pd.DataFrame
     args:
     frame (pd.DataFrame): the data to write
     agg_meta (dict): Stub for aggregated meta to be written
+    iteration (str): iteration id
     table_type (str): name to be put in metadata, if None, autodetection
     """
     logger = init_logging(__name__ + ".frame_to_feather")
@@ -180,7 +183,7 @@ def frame_to_feather(frame: pd.DataFrame, agg_meta: dict, table_type: str = None
         namer = frame_cols
     name = decide_name(namer)
     logger.debug("Name: %s", name)
-    write_feather(frame, name, agg_meta, frame_cols)
+    write_feather(frame, f"{name}--iter-{iteration}", agg_meta, frame_cols)
 
 
 def write_feather(frame: pd.DataFrame, name: str, agg_meta: dict, columns: list):
@@ -329,9 +332,19 @@ def get_blob_ids_w_metadata(query_results: dict) -> dict:
     return split_results_and_meta(hits)
 
 
+def query_sumo_iterations(sumo: SumoClient, case_name: str):
+    """Query for iterations on case
+    args:
+    case_name (str): name of case
+    """
+    query = f"fmu.case.name:{case_name}"
+    results = sumo.get(path="/search", query=query, size=1, select="fmu.iteration.id", buckets="fmu.iteration.id")
+    print(results)
+
+
 def query_sumo(
-    sumo: SumoClient, case_name: str, name: str, tag: str = "", content: str = "depth"
-) -> tuple:
+    sumo: SumoClient, case_name: str, name: str, iteration: str, tag: str = "",
+        content: str = "timeseries") -> tuple:
     """Fetches blob ids for relevant tables, collates metadata
     args:
     case_name (str): name of case
@@ -343,17 +356,18 @@ def query_sumo(
     logger = init_logging(__name__ + ".query_sumo")
     query = (
         f"fmu.case.name:{case_name} AND data.name:{name} "
-        + f"AND data.content:{content} AND class:table"
+        + f"AND data.content:{content} AND fmu.iteration.id:{iteration} AND class:table"
     )
     if tag:
         query += f" AND data.tagname:{tag}"
     logger.debug(query)
+    print(query)
     query_results = sumo.get(path="/search", query=query, size=1000)
     return query_results
 
 
-def query_for_tables(
-    sumo: SumoClient, case_name: str, name: str, tag: str = "", content: str = "depth"
+def query_for_table(
+    sumo: SumoClient, case_name: str, name: str, iteration: str, tag: str = "", content: str = "timeseries"
 ) -> tuple:
     """Fetches blob ids for relevant tables, collates metadata
     args:
@@ -363,8 +377,13 @@ def query_for_tables(
     content (str): table content
     sumo_env (str): what environment to communicate with
     """
-    query_results = query_sumo(sumo, case_name, name, tag, content)
-    results = get_blob_ids_w_metadata(query_results)
+    query_results = query_sumo(sumo, case_name, name, iteration, tag, content)
+    print(query_results)
+    if query_results["hits"]["total"]["value"] == 0:
+        print("Query returned with no hits, if you want results: modify!")
+        results = ()
+    else:
+        results = get_blob_ids_w_metadata(query_results)
     return results
 
 
@@ -376,6 +395,7 @@ def aggregate_arrow(object_ids: Dict[str, str], sumo: SumoClient) -> pa.Table:
     """
     aggregated = []
     for real_nr, object_id in object_ids.items():
+        print(f"Real {real_nr}")
         real_table = get_object(object_id, sumo, False)
         rows = real_table.shape[0]
         aggregated.append(real_table.add_column(0, "REAL", pa.array([real_nr] * rows)))
@@ -391,7 +411,9 @@ def aggregate_pandas(object_ids: Dict[str, str], sumo: SumoClient) -> pd.DataFra
     returns: aggregated (pd.DataFrame): the aggregated results
     """
     aggregated = []
+
     for real_nr, object_id in object_ids.items():
+        print(f"Real {real_nr}")
         real_frame = get_object(object_id, sumo)
         real_frame["REAL"] = real_nr
         aggregated.append(real_frame)
@@ -408,8 +430,10 @@ def aggregate_objects(object_ids: Dict[str, str], sumo: SumoClient,
     returns: aggregated (pd.DataFrame): the aggregated results
     """
     if pandas:
+        print("You chose pandas")
         aggregated = aggregate_pandas(object_ids, sumo)
     else:
+        print("You chose arrow")
         aggregated = aggregate_arrow(object_ids, sumo)
     return aggregated
 
@@ -431,12 +455,13 @@ def p90(array_like):
 
 
 def make_stat_aggregations(
-    frame: pd.DataFrame, meta_stub, aggfuncs: list = ("mean", p10, p90)
+    frame: pd.DataFrame, meta_stub, iteration, aggfuncs: list = ("mean", p10, p90)
 ):
     """Makes statistical aggregations from dataframe
     args
     frame (pd.DataFrame): data to process
     meta_stub (dict): dictionary that is start of creating proper metadata
+    iteration (str): iteration id
     aggfuncs (list): what aggregations to process
     """
     logger = init_logging(__name__ + ".make_stat_aggregations")
@@ -445,16 +470,18 @@ def make_stat_aggregations(
     logger.info("Will do stats on these vectors %s ", stat_curves)
     logger.debug(stat_curves)
     for curve in stat_curves:
+        print(f"Stats on {curve}")
         stats = frame.groupby("DATE")[curve].agg(aggfuncs)
         logger.debug(stats)
-        stat_frame_to_feather(stats, meta_stub, curve)
+        stat_frame_to_feather(stats, meta_stub, curve, iteration)
     return stats
 
 
 def store_aggregated_objects(
     frame: pd.DataFrame,
     meta_stub: dict,
-    keep_grand_aggregation: bool = True,
+    iteration: str,
+    keep_grand_aggregation: bool = False,
 ):
     """Stores results in temp folder
     frame (pd.DataFrame): the dataframe to store
@@ -465,7 +492,7 @@ def store_aggregated_objects(
     logger = init_logging(__name__ + ".store_aggregated_objects")
     count = 0
     if keep_grand_aggregation:
-        frame_to_feather(frame, meta_stub)
+        frame_to_feather(frame, meta_stub, iteration)
         count += 1
     neccessaries = ["REAL"]
     unneccessaries = ["YEARS", "SECONDS", "ENSEMBLE"]
@@ -476,7 +503,7 @@ def store_aggregated_objects(
         logger.info("Creation of file for %s", col_name)
         keep_cols = neccessaries + [col_name]
         export_frame = frame[keep_cols]
-        frame_to_feather(export_frame, meta_stub)
+        frame_to_feather(export_frame, meta_stub, iteration)
         count += 1
     logger.info("%s files produced", count)
 
