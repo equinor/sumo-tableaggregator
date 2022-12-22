@@ -25,7 +25,17 @@ class TableAggregator:
         self._tmp_folder = ut.TMP
         self._iteration = iteration
         self._agg_stats = None
+        try:
+            (
+                self._parent_id,
+                self._object_ids,
+                self._meta,
+                self._real_ids,
+                self._p_meta,
+            ) = ut.query_for_table(self.sumo, self._case_name, self._name, self._iteration, content=self._content)
 
+        except Exception:
+            print("Something went wrong, dunno what!")
 
     @property
     def parent_id(self) -> str:
@@ -43,14 +53,14 @@ class TableAggregator:
         return self._object_ids
 
     @property
+    def iteration(self) -> str:
+        """Returns the _iteration attribute"""
+        return self._iteration
+
+    @property
     def real_ids(self) -> list:
         """Returns _real_ids attribute"""
         return self._real_ids
-
-    @property
-    def iterations(self) -> list:
-        """returns the _iter_id attribute"""
-        return self._iter_ids
 
     @property
     def parameters(self) -> dict:
@@ -81,34 +91,22 @@ class TableAggregator:
         redo (bool): shall self._aggregated be made regardless
         """
         start_time = time.perf_counter()
-        print(f"This is it {it}")
-        try:
-            (
-                self._parent_id,
-                self._object_ids,
-                self._meta,
-                self._real_ids,
-                self._p_meta,
-            ) = ut.query_for_table(self.sumo, self._case_name, self._name, self._iteration, content=self._content)
+        self._aggregated = ut.aggregate_objects(self.object_ids, self.sumo)
+        end_time = time.perf_counter()
+        print(f"Aggregated in {end_time - start_time} sec")
+        start_time = time.perf_counter()
+        # self._aggregated.to_csv("Aggregated.csv", index=False)
+        ut.store_aggregated_objects(self.aggregated, self.base_meta, self.iteration)
+        end_time = time.perf_counter()
+        print(f"stored in {end_time - start_time} sec")
+        start_time = time.perf_counter()
+        self.write_statistics()
+        end_time = time.perf_counter()
+        print(f"Written stats in {end_time - start_time} sec")
 
-            self._aggregated = ut.aggregate_objects(self.object_ids, self.sumo)
-            end_time = time.perf_counter()
-            print(f"Aggregated in {end_time - start_time} sec")
-            start_time = time.perf_counter()
-            # self._aggregated.to_csv("Aggregated.csv", index=False)
-            ut.store_aggregated_objects(self.aggregated, self.base_meta, it)
-            end_time = time.perf_counter()
-            print(f"stored in {end_time - start_time} sec")
-            start_time = time.perf_counter()
-            self.write_statistics(it)
-            end_time = time.perf_counter()
-            print(f"Written stats in {end_time - start_time} sec")
-        except Exception:
-            print("Something went wrong, dunno what!")
-
-    def write_statistics(self, iteration):
+    def write_statistics(self):
         """Makes statistics from aggregated dataframe"""
-        ut.make_stat_aggregations(self.aggregated, self.base_meta, iteration)
+        ut.make_stat_aggregations(self.aggregated, self.base_meta, self.iteration)
 
     def upload(self):
         """Uploads data to sumo"""

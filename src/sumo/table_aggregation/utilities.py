@@ -1,5 +1,4 @@
 """Utils for table aggregation"""
-import sys
 import logging
 import warnings
 import hashlib
@@ -548,6 +547,7 @@ def upload_aggregated(sumo: SumoClient, parent_id: str, store_dir: str = "tmp"):
     for upload_file in upload_files:
         if not upload_file.name.startswith("."):
             continue
+        print(f"File {upload_file}")
         meta = read_yaml(upload_file)
         byte_string = meta_to_bytes(upload_file)
         path = f"/objects('{parent_id}')"
@@ -556,6 +556,7 @@ def upload_aggregated(sumo: SumoClient, parent_id: str, store_dir: str = "tmp"):
         blob_url = response.json().get("blob_url")
         response = sumo.blob_client.upload_blob(blob=byte_string, url=blob_url)
         # return response
+        print(response.text)
         file_count += 1
     logger.info("Uploaded %s files", file_count)
     return file_count
