@@ -9,6 +9,7 @@ import yaml
 import numpy as np
 import pandas as pd
 import pyarrow as pa
+import pyarrow.parquet as pq
 from pyarrow import feather
 from sumo.wrapper import SumoClient
 
@@ -96,8 +97,18 @@ def arrow_to_frame(blob_object) -> pd.DataFrame:
     blob_object (dict): the object to read
     returns frame (pd.DataFrame): the extracted data
     """
-    with pa.ipc.open_file(blob_object) as stream:
-        frame = stream.read_pandas()
+    try:
+        with pa.ipc.open_file(blob_object) as stream:
+            try:
+                frame = stream.read_pandas()
+            except pa.lib.ArrowInvalid:
+                print("Trying parquet")
+                frame = pq.read_pandas(blob_object)
+    except pa.lib.ArrowInvalid:
+        print("Trying to read parquet, but failing")
+        test = pq.ParquetFile(blob_object)
+        frame = pq.read_pandas(test)
+
     return frame
 
 
