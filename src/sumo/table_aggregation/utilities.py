@@ -12,7 +12,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from pyarrow import feather
 from sumo.wrapper import SumoClient
-
+# from adlfs import AzureBlobFileSystem
 
 TMP = Path("tmp")
 
@@ -98,16 +98,10 @@ def arrow_to_frame(blob_object) -> pd.DataFrame:
     returns frame (pd.DataFrame): the extracted data
     """
     try:
-        with pa.ipc.open_file(blob_object) as stream:
-            try:
-                frame = stream.read_pandas()
-            except pa.lib.ArrowInvalid:
-                print("Trying parquet")
-                frame = pq.read_pandas(blob_object)
+        frame = pq.read_pandas(pa.BufferReader(blob_object))
     except pa.lib.ArrowInvalid:
-        print("Trying to read parquet, but failing")
-        test = pq.ParquetFile(blob_object)
-        frame = pq.read_pandas(test)
+         with pa.ipc.open_file(blob_object) as stream:
+             frame = stream.read_pandas()
 
     return frame
 
@@ -118,8 +112,11 @@ def arrow_to_table(blob_object) -> pa.Table:
     blob_object (dict): the object to read
     table (pa.Table): the read results
     """
-    with pa.ipc.open_file(blob_object) as stream:
-        table = stream.read_all()
+    try:
+        with pa.ipc.open_file(blob_object) as stream:
+            table = stream.read_all()
+    except pa.lib.ArrowInvalid:
+        table = arrow_to_frame(blob_object)
     return table
 
 
@@ -441,7 +438,10 @@ def aggregate_objects(object_ids: Dict[str, str], sumo: SumoClient,
     """
     if pandas:
         print("You chose pandas")
-        aggregated = aggregate_pandas(object_ids, sumo)
+        try:
+            aggregated = aggregate_pandas(object_ids, sumo)
+        except TypeError:
+            aggregated = aggregate_arrow(object_ids, sumo)
     else:
         print("You chose arrow")
         aggregated = aggregate_arrow(object_ids, sumo)
