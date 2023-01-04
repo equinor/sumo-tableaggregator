@@ -128,17 +128,16 @@ def stat_frame_to_feather(frame: pd.DataFrame, agg_meta: dict, name: str, iterat
     name (str): name of statistic
     iteration (str): iteration id
     """
-    frame_cols = frame.columns
+    frame_cols = frame.column_names
+    print(frame_cols)
     for stat_type in frame_cols:
-
-        agg_frame = pd.DataFrame(frame[stat_type])
+        agg_frame = frame.select([stat_type]).to_pandas()
         agg_frame.columns = [name]
         try:
             frame_cols = agg_frame.column_names
         except AttributeError:
             frame_cols = agg_frame.columns.tolist()
 
-        # agg_meta["aggregation"] =  agg_meta.get("aggregation", {})
         agg_meta["fmu"]["aggregation"]["operation"] = stat_type
         write_feather(agg_frame, f"{name}_{stat_type}--iter-{iteration}", agg_meta, frame_cols)
 
@@ -180,7 +179,7 @@ def frame_to_feather(frame: pd.DataFrame, agg_meta: dict, iteration: str, table_
     table_type (str): name to be put in metadata, if None, autodetection
     """
     logger = init_logging(__name__ + ".frame_to_feather")
-    frame_cols = frame.columns.tolist()
+    frame_cols = frame.column_names
     if not TMP.exists():
         TMP.mkdir()
 
@@ -441,6 +440,7 @@ def aggregate_objects(object_ids: Dict[str, str], sumo: SumoClient,
         try:
             aggregated = aggregate_pandas(object_ids, sumo)
         except TypeError:
+            print("Nah... You actually chose arrow")
             aggregated = aggregate_arrow(object_ids, sumo)
     else:
         print("You chose arrow")
@@ -465,7 +465,8 @@ def p90(array_like):
 
 
 def make_stat_aggregations(
-    frame: pd.DataFrame, meta_stub, iteration, aggfuncs: list = ("mean", p10, p90)
+    # frame: pd.DataFrame, meta_stub, iteration, aggfuncs: list = ("mean", p10, p90)
+    frame: pd.DataFrame, meta_stub, iteration, aggfuncs: list = ("mean", "min", "max")
 ):
     """Makes statistical aggregations from dataframe
     args
@@ -476,13 +477,18 @@ def make_stat_aggregations(
     """
     logger = init_logging(__name__ + ".make_stat_aggregations")
     non_aggs = ["DATE", "REAL", "ENSEMBLE"]
-    stat_curves = [name for name in frame.columns if name not in non_aggs]
+    stat_curves = [name for name in frame.column_names if name not in non_aggs]
     logger.info("Will do stats on these vectors %s ", stat_curves)
     logger.debug(stat_curves)
     for curve in stat_curves:
         print(f"Stats on {curve}")
-        stats = frame.groupby("DATE")[curve].agg(aggfuncs)
+        # stats = frame.group_by("DATE")[curve].agg(aggfuncs)
+        agglist = []
+        for aggfunc in aggfuncs:
+            agglist.append((curve, aggfunc))
+            stats = frame.group_by("DATE").aggregate(agglist)
         logger.debug(stats)
+        logger.info(stats)
         stat_frame_to_feather(stats, meta_stub, curve, iteration)
     return stats
 
@@ -506,13 +512,17 @@ def store_aggregated_objects(
         count += 1
     neccessaries = ["REAL"]
     unneccessaries = ["YEARS", "SECONDS", "ENSEMBLE"]
-    for col_name in frame:
+    for col_name in frame.column_names:
         if col_name in (neccessaries + unneccessaries):
             continue
 
         logger.info("Creation of file for %s", col_name)
         keep_cols = neccessaries + [col_name]
-        export_frame = frame[keep_cols]
+        logger.info(keep_cols)
+        try:
+            export_frame = frame[keep_cols] # Goal: 2 columns [realization_ids][vector]
+        except TypeError:
+            export_frame = frame.select(keep_cols)
         frame_to_feather(export_frame, meta_stub, iteration)
         count += 1
     logger.info("%s files produced", count)
