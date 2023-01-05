@@ -12,7 +12,9 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from pyarrow import feather
 from sumo.wrapper import SumoClient
+
 # from adlfs import AzureBlobFileSystem
+
 
 TMP = Path("tmp")
 
@@ -76,36 +78,21 @@ def uuid_from_string(string: str) -> str:
 # END of steal
 
 
-def get_object(object_id: str, sumo: SumoClient, pandas: bool = True):
-    """Gets object from blob store
-    args:
-    object_id (str): the id of the object
-    sumo (SumoClient): the client to get from
-    pandas (bool): defines what type to return
-    returns digestable (pd.DataFrame) or pyarrow.Table)
+def get_object(object_id: str, sumo: SumoClient) -> pa.Table:
+    """fetches sumo object as pa.Table
+
+    Args:
+        object_id (str): sumo object id
+        sumo (SumoClient): client to a given environment
+
+    Returns:
+        table: the object as pyarrow
     """
-    if pandas:
-        digestable = arrow_to_frame(get_blob(object_id, sumo))
-    else:
-        digestable = arrow_to_table(get_blob(object_id, sumo))
-    return digestable
+    query = f"/objects('{object_id}')/blob"
+    table = arrow_to_table(sumo.get(query))
+    return table
 
-
-def arrow_to_frame(blob_object) -> pd.DataFrame:
-    """Reads blob into pandas dataframe
-    args:
-    blob_object (dict): the object to read
-    returns frame (pd.DataFrame): the extracted data
-    """
-    try:
-        frame = pq.read_pandas(pa.BufferReader(blob_object))
-    except pa.lib.ArrowInvalid:
-         with pa.ipc.open_file(blob_object) as stream:
-             frame = stream.read_pandas()
-
-    return frame
-
-
+     kdkdkd
 def arrow_to_table(blob_object) -> pa.Table:
     """Reads sumo blob into pandas dataframe
     args:
@@ -113,14 +100,18 @@ def arrow_to_table(blob_object) -> pa.Table:
     table (pa.Table): the read results
     """
     try:
-        with pa.ipc.open_file(blob_object) as stream:
-            table = stream.read_all()
+        table = pq.read_table(pa.BufferReader(blob_object))
+        print("In the try")
     except pa.lib.ArrowInvalid:
-        table = arrow_to_frame(blob_object)
+        print("In the except")
+        table = feather.read_table(pa.BufferReader(blob_object))
+    print(f"Type {type(table)}")
     return table
 
 
-def stat_frame_to_feather(frame: pd.DataFrame, agg_meta: dict, name: str, iteration: str):
+def stat_frame_to_feather(
+    frame: pd.DataFrame, agg_meta: dict, name: str, iteration: str
+):
     """Writes arrow format from pd.DataFrame with two multilevel index
     args:
     frame (pd.DataFrame): the data to write
@@ -131,16 +122,15 @@ def stat_frame_to_feather(frame: pd.DataFrame, agg_meta: dict, name: str, iterat
     frame_cols = frame.columns
     for stat_type in frame_cols:
 
-        agg_frame = pd.DataFrame(frame[stat_type])
+        agg_frame = frame[stat_type]
         agg_frame.columns = [name]
-        try:
-            frame_cols = agg_frame.column_names
-        except AttributeError:
-            frame_cols = agg_frame.columns.tolist()
+        exp_cols = agg_frame.columns
 
         # agg_meta["aggregation"] =  agg_meta.get("aggregation", {})
         agg_meta["fmu"]["aggregation"]["operation"] = stat_type
-        write_feather(agg_frame, f"{name}_{stat_type}--iter-{iteration}", agg_meta, frame_cols)
+        write_feather(
+            agg_frame, f"{name}_{stat_type}--iter-{iteration}", agg_meta, exp_cols
+        )
 
 
 def decide_name(namer):
@@ -171,7 +161,9 @@ def decide_name(namer):
     return name
 
 
-def frame_to_feather(frame: pd.DataFrame, agg_meta: dict, iteration: str, table_type: str = None):
+def table_to_feather(
+    table: pa.Table, agg_meta: dict, iteration: str, table_type: str = None
+):
     """Writes arrow format from pd.DataFrame
     args:
     frame (pd.DataFrame): the data to write
@@ -179,8 +171,8 @@ def frame_to_feather(frame: pd.DataFrame, agg_meta: dict, iteration: str, table_
     iteration (str): iteration id
     table_type (str): name to be put in metadata, if None, autodetection
     """
-    logger = init_logging(__name__ + ".frame_to_feather")
-    frame_cols = frame.columns.tolist()
+    logger = init_logging(__name__ + ".table_to_feather")
+    frame_cols = table.column_names
     if not TMP.exists():
         TMP.mkdir()
 
@@ -190,7 +182,7 @@ def frame_to_feather(frame: pd.DataFrame, agg_meta: dict, iteration: str, table_
         namer = frame_cols
     name = decide_name(namer)
     logger.debug("Name: %s", name)
-    write_feather(frame, f"{name}--iter-{iteration}", agg_meta, frame_cols)
+    write_feather(table, f"{name}--iter-{iteration}", agg_meta, frame_cols)
 
 
 def write_feather(frame: pd.DataFrame, name: str, agg_meta: dict, columns: list):
@@ -209,7 +201,11 @@ def write_feather(frame: pd.DataFrame, name: str, agg_meta: dict, columns: list)
     agg_meta["display"]["name"] = name
     agg_meta["file"]["absolute_path"] = str(file_name.absolute())
     agg_meta["file"]["relative_path"] = str(file_name)
-    feather.write_feather(frame, dest=file_name)
+    try:
+        feather.write_feather(frame, dest=file_name)
+    except TypeError:
+        feather.write_feather(frame.to_frame(), dest=file_name)
+
     try:
         del agg_meta["_sumo"]
     except KeyError:
@@ -218,17 +214,6 @@ def write_feather(frame: pd.DataFrame, name: str, agg_meta: dict, columns: list)
     agg_meta["file"]["checksum_md5"] = md5
     agg_meta["fmu"]["aggregation"]["id"] = uuid_from_string(md5)
     write_yaml(agg_meta, meta_name)
-
-
-def get_blob(blob_id: str, sumo: SumoClient):
-    """Fetches sumo blob
-    args:
-    blob_id (str): key is real name: value blob id
-    returns blob (binary something):
-    """
-    query = f"/objects('{blob_id}')/blob"
-    blob = sumo.get(query)
-    return blob
 
 
 class MetadataSet:
@@ -345,13 +330,24 @@ def query_sumo_iterations(sumo: SumoClient, case_name: str):
     case_name (str): name of case
     """
     query = f"fmu.case.name:{case_name}"
-    results = sumo.get(path="/search", query=query, size=1, select="fmu.iteration.id", buckets="fmu.iteration.id")
+    results = sumo.get(
+        path="/search",
+        query=query,
+        size=1,
+        select="fmu.iteration.id",
+        buckets="fmu.iteration.id",
+    )
     print(results)
 
 
 def query_sumo(
-    sumo: SumoClient, case_name: str, name: str, iteration: str, tag: str = "",
-        content: str = "timeseries") -> tuple:
+    sumo: SumoClient,
+    case_name: str,
+    name: str,
+    iteration: str,
+    tag: str = "",
+    content: str = "timeseries",
+) -> tuple:
     """Fetches blob ids for relevant tables, collates metadata
     args:
     case_name (str): name of case
@@ -374,7 +370,12 @@ def query_sumo(
 
 
 def query_for_table(
-    sumo: SumoClient, case_name: str, name: str, iteration: str, tag: str = "", content: str = "timeseries"
+    sumo: SumoClient,
+    case_name: str,
+    name: str,
+    iteration: str,
+    tag: str = "",
+    content: str = "timeseries",
 ) -> tuple:
     """Fetches blob ids for relevant tables, collates metadata
     args:
@@ -403,48 +404,11 @@ def aggregate_arrow(object_ids: Dict[str, str], sumo: SumoClient) -> pa.Table:
     aggregated = []
     for real_nr, object_id in object_ids.items():
         print(f"Real {real_nr}")
-        real_table = get_object(object_id, sumo, False)
+        real_table = get_object(object_id, sumo)
         rows = real_table.shape[0]
         aggregated.append(real_table.add_column(0, "REAL", pa.array([real_nr] * rows)))
     aggregated = pa.concat_tables(aggregated)
 
-    return aggregated
-
-
-def aggregate_pandas(object_ids: Dict[str, str], sumo: SumoClient) -> pd.DataFrame:
-    """Aggregates the individual files into one large pandas dataframe
-    args:
-    object_ids (dict): key is real nr, value is object id
-    returns: aggregated (pd.DataFrame): the aggregated results
-    """
-    aggregated = []
-
-    for real_nr, object_id in object_ids.items():
-        print(f"Real {real_nr}")
-        real_frame = get_object(object_id, sumo)
-        real_frame["REAL"] = real_nr
-        aggregated.append(real_frame)
-    aggregated = pd.concat(aggregated)
-    aggregated["REAL"] = aggregated["REAL"].astype(int)
-    return aggregated
-
-
-def aggregate_objects(object_ids: Dict[str, str], sumo: SumoClient,
-                      pandas: bool = True) -> Union[pd.DataFrame, pa.Table]:
-    """Aggregates the individual files into one large object
-    args:
-    object_ids (dict): key is real nr, value is object id
-    returns: aggregated (pd.DataFrame): the aggregated results
-    """
-    if pandas:
-        print("You chose pandas")
-        try:
-            aggregated = aggregate_pandas(object_ids, sumo)
-        except TypeError:
-            aggregated = aggregate_arrow(object_ids, sumo)
-    else:
-        print("You chose arrow")
-        aggregated = aggregate_arrow(object_ids, sumo)
     return aggregated
 
 
@@ -465,22 +429,26 @@ def p90(array_like):
 
 
 def make_stat_aggregations(
-    frame: pd.DataFrame, meta_stub, iteration, aggfuncs: list = ("mean", p10, p90)
+    table: pa.Table,
+    meta_stub,
+    iteration,
+    aggfuncs: list = ("mean", "min", "max", p10, p90),
 ):
     """Makes statistical aggregations from dataframe
     args
-    frame (pd.DataFrame): data to process
+    table (pd.DataFrame): data to process
     meta_stub (dict): dictionary that is start of creating proper metadata
     iteration (str): iteration id
     aggfuncs (list): what aggregations to process
     """
     logger = init_logging(__name__ + ".make_stat_aggregations")
     non_aggs = ["DATE", "REAL", "ENSEMBLE"]
-    stat_curves = [name for name in frame.columns if name not in non_aggs]
+    stat_curves = [name for name in table.column_names if name not in non_aggs]
     logger.info("Will do stats on these vectors %s ", stat_curves)
     logger.debug(stat_curves)
     for curve in stat_curves:
         print(f"Stats on {curve}")
+        frame = table.select(["DATE", curve]).to_pandas()
         stats = frame.groupby("DATE")[curve].agg(aggfuncs)
         logger.debug(stats)
         stat_frame_to_feather(stats, meta_stub, curve, iteration)
@@ -488,13 +456,13 @@ def make_stat_aggregations(
 
 
 def store_aggregated_objects(
-    frame: pd.DataFrame,
+    table: pa.Table,
     meta_stub: dict,
     iteration: str,
     keep_grand_aggregation: bool = False,
 ):
     """Stores results in temp folder
-    frame (pd.DataFrame): the dataframe to store
+    table (pd.DataFrame): the dataframe to store
     meta_stub (dict): dictionary that is start of creating proper metadata
     keep_grand_aggregation (bool): store copy of the aggregated or not
     withstats (bool): make statistical vectors as well
@@ -502,23 +470,23 @@ def store_aggregated_objects(
     logger = init_logging(__name__ + ".store_aggregated_objects")
     count = 0
     if keep_grand_aggregation:
-        frame_to_feather(frame, meta_stub, iteration)
+        table_to_feather(table, meta_stub, iteration)
         count += 1
     neccessaries = ["REAL"]
     unneccessaries = ["YEARS", "SECONDS", "ENSEMBLE"]
-    for col_name in frame:
+    for col_name in table.column_names:
         if col_name in (neccessaries + unneccessaries):
             continue
 
         logger.info("Creation of file for %s", col_name)
         keep_cols = neccessaries + [col_name]
-        export_frame = frame[keep_cols]
-        frame_to_feather(export_frame, meta_stub, iteration)
+        export_frame = table.select(keep_cols)
+        table_to_feather(export_frame, meta_stub, iteration)
         count += 1
     logger.info("%s files produced", count)
 
 
-# def pyarrow_to_bytes(frame):
+# def pyarrow_to_bytes(table):
 #     """Writing frame to bytestring directly
 #     args:
 #     """

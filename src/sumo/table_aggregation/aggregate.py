@@ -91,7 +91,7 @@ class TableAggregator:
         redo (bool): shall self._aggregated be made regardless
         """
         start_time = time.perf_counter()
-        self._aggregated = ut.aggregate_objects(self.object_ids, self.sumo)
+        self._aggregated = ut.aggregate_arrow(self.object_ids, self.sumo)
         end_time = time.perf_counter()
         print(f"Aggregated in {end_time - start_time} sec")
         start_time = time.perf_counter()
