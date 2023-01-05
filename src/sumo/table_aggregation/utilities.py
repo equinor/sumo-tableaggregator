@@ -3,6 +3,7 @@ import logging
 import warnings
 import hashlib
 import uuid
+import time
 from typing import Dict, Union
 from pathlib import Path
 import yaml
@@ -520,7 +521,7 @@ def store_aggregated_objects(
         keep_cols = neccessaries + [col_name]
         logger.info(keep_cols)
         try:
-            export_frame = frame[keep_cols] # Goal: 2 columns [realization_ids][vector]
+            export_frame = frame[keep_cols]
         except TypeError:
             export_frame = frame.select(keep_cols)
         frame_to_feather(export_frame, meta_stub, iteration)
@@ -572,13 +573,25 @@ def upload_aggregated(sumo: SumoClient, parent_id: str, store_dir: str = "tmp"):
         meta = read_yaml(upload_file)
         byte_string = meta_to_bytes(upload_file)
         path = f"/objects('{parent_id}')"
-        response = sumo.post(path=path, json=meta)
-        logger.debug(response.json())
-        blob_url = response.json().get("blob_url")
-        response = sumo.blob_client.upload_blob(blob=byte_string, url=blob_url)
-        # return response
-        print(response.text)
-        file_count += 1
+        try:
+            response = sumo.post(path=path, json=meta)
+            logger.debug(response.json())
+            print(response.status_code)
+            blob_url = response.json().get("blob_url")
+            response = sumo.blob_client.upload_blob(blob=byte_string, url=blob_url)
+            print(response.status_code)
+            file_count += 1
+        except Exception as err:
+            print(f"Unexpected {err=}, {type(err)=}")
+            print("Retrying in 10 seconds...")
+            time.sleep(10)
+            response = sumo.post(path=path, json=meta)
+            logger.debug(response.json())
+            print(response.status_code)
+            blob_url = response.json().get("blob_url")
+            response = sumo.blob_client.upload_blob(blob=byte_string, url=blob_url)
+            print(response.status_code)
+            file_count += 1
     logger.info("Uploaded %s files", file_count)
     return file_count
     # store.rmdir()
