@@ -258,3 +258,9 @@ def test_upload_aggregated(sumo, store_folder=TMP):
         sumo, "17c56e33-38cd-f8d4-3e83-ec2d16a85327", store_folder
     )
     assert count == 4, f"Not uploaded all files ({count})"
+
+
+def test_get_object(sumo):
+    """Testing getting of object"""
+    object_id = 'ce25b1c1-6633-4a13-101a-863de9e85c1d'
+    ut.get_object(object_id, sumo)

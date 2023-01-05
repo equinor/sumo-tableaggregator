@@ -14,7 +14,7 @@ def test_table_aggregator():
     test_table_name = "summary"
     timer = Timer()
     timer.start()
-    aggregator = TableAggregator(test_case_name, test_table_name, 0, delete=False, content="depth")
+    aggregator = TableAggregator(test_case_name, test_table_name, 0, content="depth")
     print(f"Fetched ids: {timer.stop()}")
     # print(aggregator.object_ids)
     timer.start()

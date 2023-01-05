@@ -4,7 +4,7 @@ from context import TableAggregator, Timer
 
 logging.basicConfig(level="DEBUG", format="%(name)s %(levelname)s: %(message)s")
 
-LOGGER = logging.getLogger()
+# LOGGER = logging.getLogger()
 
 
 def test_table_aggregator():
@@ -14,15 +14,15 @@ def test_table_aggregator():
     test_table_name = "summary"
     timer = Timer()
     timer.start()
-    aggregator = TableAggregator(test_case_name, test_table_name)
+    aggregator = TableAggregator(test_case_name, test_table_name, 0, content="depth")
     print(f"Fetched ids: {timer.stop()}")
-    print(aggregator.object_ids)
+    # print(aggregator.object_ids)
     timer.start()
     aggregator.aggregate()
     print(f"Aggregated: {timer.stop(restart=True)}")
     # timer.start()
-    aggregator.write_statistics()
-    print(f"Added statistics {timer.stop(restart=True)}")
+    # aggregator.write_statistics()
+    # print(f"Added statistics {timer.stop(restart=True)}")
     # timer.start()
     aggregator.upload()
     print(f"Uploaded: {timer.stop()}")
