@@ -3,7 +3,7 @@ import logging
 import warnings
 import hashlib
 import uuid
-from typing import Dict, Union
+from typing import Dict
 from pathlib import Path
 import yaml
 import numpy as np
@@ -92,7 +92,7 @@ def get_object(object_id: str, sumo: SumoClient) -> pa.Table:
     table = arrow_to_table(sumo.get(query))
     return table
 
-     kdkdkd
+
 def arrow_to_table(blob_object) -> pa.Table:
     """Reads sumo blob into pandas dataframe
     args:
