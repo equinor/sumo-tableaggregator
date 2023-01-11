@@ -3,6 +3,7 @@ import logging
 import warnings
 import hashlib
 import uuid
+import time
 from typing import Dict
 from pathlib import Path
 import yaml
@@ -511,6 +512,70 @@ def meta_to_bytes(meta_path):
         byte_string = stream.read()
 
     return byte_string
+
+
+def upload_aggregated_direct(sumo: SumoClient, parent_id: str, table: pa.Table, meta_stub: dict, iteration: str,):
+    logger = init_logging(__name__ + ".upload_aggregated_direct")
+    neccessaries = ["REAL"]
+    unneccessaries = ["YEARS", "SECONDS", "ENSEMBLE"]
+    for col_name in table.column_names:
+        if col_name in (neccessaries + unneccessaries):
+            continue
+
+        keep_cols = neccessaries + [col_name]
+        export_frame = table.select(keep_cols)
+        frame_cols = export_frame.column_names
+        name = decide_name(frame_cols)
+        long_name = f"{name}--iter-{iteration}"
+        file_name = Path("sumo") / (long_name.lower() + ".arrow")
+        # meta_name = Path("sumo") / f".{file_name.name}.yml"
+        meta_stub["data"]["spec"]["columns"] = frame_cols
+        meta_stub["data"]["name"] = long_name
+        meta_stub["display"]["name"] = long_name
+        meta_stub["file"]["absolute_path"] = str(file_name.absolute())
+        meta_stub["file"]["relative_path"] = str(file_name)
+
+        try:
+            del meta_stub["_sumo"]
+        except KeyError:
+            logger.debug("Nothing to delete at _sumo")
+        md5 = hashlib.md5(file_name.as_posix().encode('utf-8')).hexdigest()
+        meta_stub["file"]["checksum_md5"] = md5
+        meta_stub["fmu"]["aggregation"]["id"] = uuid_from_string(md5)
+        
+        # batches = export_frame.to_batches()
+        # sink = pa.BufferOutputStream()
+        # writer = pa.ipc.new_stream(sink, export_frame.schema)
+        # for batch in batches:
+        #     writer.write(batch)
+        # writer.close()
+        # buf = sink.getvalue()
+        # byte_string = buf.to_pybytes()
+        # print(type(byte_string))
+
+        sink = pa.BufferOutputStream()
+        pq.write_table(export_frame, sink)
+        byte_string = sink.getvalue().to_pybytes()
+        # print(type(byte_string))
+
+        path = f"/objects('{parent_id}')"
+        try:
+            response = sumo.post(path=path, json=meta_stub)
+            print(response.status_code)
+            blob_url = response.json().get("blob_url")
+            response = sumo.blob_client.upload_blob(blob=byte_string, url=blob_url)
+            print(response.status_code)
+        except Exception as err:
+            print(f"Unexpected {err=}, {type(err)=}")
+            print("Retrying in 10 seconds...")
+            time.sleep(10)
+            response = sumo.post(path=path, json=meta_stub)
+            print(response.status_code)
+            blob_url = response.json().get("blob_url")
+            response = sumo.blob_client.upload_blob(blob=byte_string, url=blob_url)
+            print(response.status_code)
+
+    pass
 
 
 def upload_aggregated(sumo: SumoClient, parent_id: str, store_dir: str = "tmp"):

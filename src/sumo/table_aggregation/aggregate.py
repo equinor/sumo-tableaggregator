@@ -94,15 +94,14 @@ class TableAggregator:
         self._aggregated = ut.aggregate_arrow(self.object_ids, self.sumo)
         end_time = time.perf_counter()
         print(f"Aggregated in {end_time - start_time} sec")
-        start_time = time.perf_counter()
-        # self._aggregated.to_csv("Aggregated.csv", index=False)
-        ut.store_aggregated_objects(self.aggregated, self.base_meta, self.iteration)
-        end_time = time.perf_counter()
-        print(f"stored in {end_time - start_time} sec")
-        start_time = time.perf_counter()
-        self.write_statistics()
-        end_time = time.perf_counter()
-        print(f"Written stats in {end_time - start_time} sec")
+        # start_time = time.perf_counter()
+        # ut.store_aggregated_objects(self.aggregated, self.base_meta, self.iteration)
+        # end_time = time.perf_counter()
+        # print(f"stored in {end_time - start_time} sec")
+        # start_time = time.perf_counter()
+        # self.write_statistics()
+        # end_time = time.perf_counter()
+        # print(f"Written stats in {end_time - start_time} sec")
 
     def write_statistics(self):
         """Makes statistics from aggregated dataframe"""
@@ -114,7 +113,8 @@ class TableAggregator:
 
         #    ut.store_aggregated_objects(self.aggregated, self.base_meta)
         start_time = time.perf_counter()
-        ut.upload_aggregated(self.sumo, self.parent_id, self._tmp_folder)
+        # ut.upload_aggregated(self.sumo, self.parent_id, self._tmp_folder)
+        ut.upload_aggregated_direct(self.sumo, self.parent_id, self.aggregated, self.base_meta, self.iteration)
         end_time = time.perf_counter()
         print(f"Uploaded in {end_time - start_time} sec")
 
