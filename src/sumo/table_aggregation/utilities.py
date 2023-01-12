@@ -147,7 +147,7 @@ def decide_name(namer):
         try:
             namer = namer.tolist()
         except AttributeError:
-            logger.warning("Input was not pd.DataFrame.columns")
+            logger.debug("Input was not pd.DataFrame.columns")
 
         if len(namer) == 2:
             name = [col for col in namer if col != "REAL"].pop()
