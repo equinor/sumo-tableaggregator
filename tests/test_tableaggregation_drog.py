@@ -10,7 +10,7 @@ logging.basicConfig(level="DEBUG", format="%(name)s %(levelname)s: %(message)s")
 def test_table_aggregator():
 
     """Tests TableAggregator"""
-    test_case_name = "drogon_ahm-2023-01-04"
+    test_case_name = "drogon_ahm-2023-01-03"
     test_table_name = "summary"
     timer = Timer()
     timer.start()

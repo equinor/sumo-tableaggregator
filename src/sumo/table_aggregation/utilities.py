@@ -387,7 +387,7 @@ def query_for_table(
     sumo_env (str): what environment to communicate with
     """
     query_results = query_sumo(sumo, case_name, name, iteration, tag, content)
-    print(query_results)
+    # print(query_results)
     if query_results["hits"]["total"]["value"] == 0:
         print("Query returned with no hits, if you want results: modify!")
         results = ()
@@ -456,6 +456,68 @@ def make_stat_aggregations(
     return stats
 
 
+def upload_stat_aggregations(
+    sumo: SumoClient,
+    parent_id: str,
+    table: pa.Table,
+    meta_stub,
+    iteration,
+    aggfuncs: list = ("mean", "min", "max", p10, p90),
+):
+    logger = init_logging(__name__ + ".upload_stat_aggregations")
+    non_aggs = ["DATE", "REAL", "ENSEMBLE"]
+    stat_curves = [name for name in table.column_names if name not in non_aggs]
+    logger.info("Will do stats on these vectors %s ", stat_curves)
+    for curve in stat_curves:
+        print(f"Stats on {curve}")
+        frame = table.select(["DATE", curve]).to_pandas()
+        stats = frame.groupby("DATE")[curve].agg(aggfuncs)
+        frame_cols = stats.columns
+        for stat_type in frame_cols:
+            agg_frame = stats[stat_type]
+            agg_frame.columns = [curve]
+            exp_cols = agg_frame.columns
+            meta_stub["fmu"]["aggregation"]["operation"] = stat_type
+            long_name = f"{curve}_{stat_type}--iter-{iteration}"
+            file_name = Path("sumo") / (long_name.lower() + ".arrow")
+            meta_stub["data"]["spec"]["columns"] = exp_cols
+            meta_stub["data"]["name"] = long_name
+            meta_stub["display"]["name"] = long_name
+            meta_stub["file"]["absolute_path"] = str(file_name.absolute())
+            meta_stub["file"]["relative_path"] = str(file_name)
+
+            try:
+                del meta_stub["_sumo"]
+            except KeyError:
+                logger.debug("Nothing to delete at _sumo")
+            md5 = hashlib.md5(file_name.as_posix().encode('utf-8')).hexdigest()
+            meta_stub["file"]["checksum_md5"] = md5
+            meta_stub["fmu"]["aggregation"]["id"] = uuid_from_string(md5)
+
+            stat_frame = agg_frame.to_frame()
+            stat_table = pa.Table.from_pandas(stat_frame)
+            byte_string = pyarrow_to_parquet_bytes(stat_table)
+
+            path = f"/objects('{parent_id}')"
+            try:
+                print(f'Uploading {long_name}')
+                response = sumo.post(path=path, json=meta_stub)
+                print(f'Metadata upload response: {response.status_code}')
+                blob_url = response.json().get("blob_url")
+                response = sumo.blob_client.upload_blob(blob=byte_string, url=blob_url)
+                print(f'Blob upload response: {response.status_code}')
+            except Exception as err:
+                print(f"Unexpected {err=}, {type(err)=}")
+                print("Retrying in 10 seconds...")
+                time.sleep(10)
+                print(f'Uploading {long_name}')
+                response = sumo.post(path=path, json=meta_stub)
+                print(f'Metadata upload response: {response.status_code}')
+                blob_url = response.json().get("blob_url")
+                response = sumo.blob_client.upload_blob(blob=byte_string, url=blob_url)
+                print(f'Blob upload response: {response.status_code}')
+
+
 def store_aggregated_objects(
     table: pa.Table,
     meta_stub: dict,
@@ -497,6 +559,18 @@ def store_aggregated_objects(
 #         # writer = pa.ipc.new_stream(sink, batch.schema)
 #
 #         writer.write_batch(batch)
+
+
+def pyarrow_to_parquet_bytes(table):
+    """Converts pyarrow table to parquet byte string
+    args:
+    table: pyarrow table
+    returns byte_string: parquet-formatted bytes
+    """
+    sink = pa.BufferOutputStream()
+    pq.write_table(table, sink)
+    byte_string = sink.getvalue().to_pybytes()
+    return byte_string
 
 
 def meta_to_bytes(meta_path):
@@ -543,39 +617,26 @@ def upload_aggregated_direct(sumo: SumoClient, parent_id: str, table: pa.Table, 
         meta_stub["file"]["checksum_md5"] = md5
         meta_stub["fmu"]["aggregation"]["id"] = uuid_from_string(md5)
         
-        # batches = export_frame.to_batches()
-        # sink = pa.BufferOutputStream()
-        # writer = pa.ipc.new_stream(sink, export_frame.schema)
-        # for batch in batches:
-        #     writer.write(batch)
-        # writer.close()
-        # buf = sink.getvalue()
-        # byte_string = buf.to_pybytes()
-        # print(type(byte_string))
-
-        sink = pa.BufferOutputStream()
-        pq.write_table(export_frame, sink)
-        byte_string = sink.getvalue().to_pybytes()
-        # print(type(byte_string))
+        byte_string = pyarrow_to_parquet_bytes(export_frame)
 
         path = f"/objects('{parent_id}')"
         try:
+            print(f'Uploading {long_name}')
             response = sumo.post(path=path, json=meta_stub)
-            print(response.status_code)
+            print(f'Metadata upload response: {response.status_code}')
             blob_url = response.json().get("blob_url")
             response = sumo.blob_client.upload_blob(blob=byte_string, url=blob_url)
-            print(response.status_code)
+            print(f'Blob upload response: {response.status_code}')
         except Exception as err:
             print(f"Unexpected {err=}, {type(err)=}")
             print("Retrying in 10 seconds...")
             time.sleep(10)
+            print(f'Uploading {long_name}')
             response = sumo.post(path=path, json=meta_stub)
-            print(response.status_code)
+            print(f'Metadata upload response: {response.status_code}')
             blob_url = response.json().get("blob_url")
             response = sumo.blob_client.upload_blob(blob=byte_string, url=blob_url)
-            print(response.status_code)
-
-    pass
+            print(f'Blob upload response: {response.status_code}')
 
 
 def upload_aggregated(sumo: SumoClient, parent_id: str, store_dir: str = "tmp"):
