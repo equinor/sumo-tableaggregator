@@ -9,7 +9,9 @@ class TableAggregator:
 
     """Class for aggregating tables"""
 
-    def __init__(self, case_name: str, name: str, iteration: str, token: str = None, **kwargs):
+    def __init__(
+        self, case_name: str, name: str, iteration: str, token: str = None, **kwargs
+    ):
         """Reads the data to be aggregated
         args
         case_name (str): name of sumo case
@@ -22,25 +24,39 @@ class TableAggregator:
         self._content = kwargs.get("content", "timeseries")
         self._case_name = case_name
         self._name = name
-        self._tmp_folder = ut.TMP
         self._iteration = iteration
-        self._agg_stats = None
-        try:
-            (
-                self._parent_id,
-                self._object_ids,
-                self._meta,
-                self._real_ids,
-                self._p_meta,
-            ) = ut.query_for_table(self.sumo, self._case_name, self._name, self._iteration, content=self._content)
+        self._table_index = ["DATE"]
+        # try:
+        (
+            self._parent_id,
+            self._object_ids,
+            self._meta,
+            self._real_ids,
+            self._p_meta,
+        ) = ut.query_for_table(
+            self.sumo,
+            self._case_name,
+            self._name,
+            self._iteration,
+            content=self._content,
+        )
 
-        except Exception:
-            print("Something went wrong, dunno what!")
+        # except Exception:
+        # print("Something went wrong, dunno what!")
 
     @property
     def parent_id(self) -> str:
         """Returns _parent_id attribute"""
         return self._parent_id
+
+    @property
+    def table_index(self):
+        """Return attribute _table_index
+
+        Returns:
+            string: the table index
+        """
+        return self._table_index
 
     @property
     def sumo(self) -> SumoClient:
@@ -80,11 +96,6 @@ class TableAggregator:
 
         return self._aggregated
 
-    # @property
-    # def aggregated_stats(self) -> pd.DataFrame:
-    #     """Returns the _agg_stats attribute"""
-    #     return self._agg_stats
-    #
     def aggregate(self):
         """Aggregates objects over realizations on disk
         args:
@@ -94,19 +105,6 @@ class TableAggregator:
         self._aggregated = ut.aggregate_arrow(self.object_ids, self.sumo)
         end_time = time.perf_counter()
         print(f"Aggregated in {end_time - start_time} sec")
-        start_time = time.perf_counter()
-        # self._aggregated.to_csv("Aggregated.csv", index=False)
-        ut.store_aggregated_objects(self.aggregated, self.base_meta, self.iteration)
-        end_time = time.perf_counter()
-        print(f"stored in {end_time - start_time} sec")
-        start_time = time.perf_counter()
-        self.write_statistics()
-        end_time = time.perf_counter()
-        print(f"Written stats in {end_time - start_time} sec")
-
-    def write_statistics(self):
-        """Makes statistics from aggregated dataframe"""
-        ut.make_stat_aggregations(self.aggregated, self.base_meta, self.iteration)
 
     def upload(self):
         """Uploads data to sumo"""
@@ -114,17 +112,19 @@ class TableAggregator:
 
         #    ut.store_aggregated_objects(self.aggregated, self.base_meta)
         start_time = time.perf_counter()
-        ut.upload_aggregated(self.sumo, self.parent_id, self._tmp_folder)
+        ut.extract_and_upload(
+            self.sumo, self.parent_id, self.aggregated, self.table_index, self.base_meta
+        )
         end_time = time.perf_counter()
         print(f"Uploaded in {end_time - start_time} sec")
 
-    def __del__(self):
-        """Deletes tmp folder"""
-        if self._delete:
-            try:
-                for single_file in self._tmp_folder.iterdir():
-                    single_file.unlink()
+    # def __del__(self):
+    # """Deletes tmp folder"""
+    # if self._delete:
+    # try:
+    # for single_file in self._tmp_folder.iterdir():
+    # single_file.unlink()
 
-                self._tmp_folder.rmdir()
-            except FileNotFoundError:
-                print("No tmp folder exists, talk about failing fast :-)")
+    # self._tmp_folder.rmdir()
+    # except FileNotFoundError:
+    # print("No tmp folder exists, talk about failing fast :-)")

@@ -3,20 +3,15 @@ import logging
 import warnings
 import hashlib
 import uuid
-from typing import Dict
-from pathlib import Path
+from typing import Dict, Union
 import yaml
 import numpy as np
-import pandas as pd
 import pyarrow as pa
-import pyarrow.parquet as pq
 from pyarrow import feather
+import pyarrow.parquet as pq
 from sumo.wrapper import SumoClient
 
 # from adlfs import AzureBlobFileSystem
-
-
-TMP = Path("tmp")
 
 
 def init_logging(name: str) -> logging.Logger:
@@ -31,17 +26,16 @@ def init_logging(name: str) -> logging.Logger:
 
 
 # The two functions below are stolen from fmu.dataio._utils
-def md5sum(fname: str) -> str:
-    """Makes checksum from file
+def md5sum(bytes_string: bytes) -> str:
+    """Make checksum from bytestring
     args:
-    fname (str): name of file
+    bytes_string (bytes): byte string
     returns (str): checksum
     """
     hash_md5 = hashlib.md5()
-    with open(fname, "rb") as fil:
-        for chunk in iter(lambda: fil.read(4096), b""):
-            hash_md5.update(chunk)
-    return hash_md5.hexdigest()
+    hash_md5.update(bytes_string)
+    checksum = hash_md5.hexdigest()
+    return checksum
 
 
 def write_yaml(write_dict: dict, filename: str):
@@ -66,6 +60,79 @@ def read_yaml(filename: str) -> dict:
     except IOError:
         warnings.warn(f"No file at {filename}")
     return yam
+
+
+def query_sumo_iterations(sumo: SumoClient, case_name: str):
+    """Query for iterations connected to case
+    args:
+    case_name (str): name of case
+    """
+    select_id = "fmu.iteration.id"
+    query = f"fmu.case.name:{case_name}"
+    results = sumo.get(
+        path="/search",
+        query=query,
+        size=1,
+        select=select_id,
+        buckets=select_id,
+    )
+    iterations = [
+        bucket["key"] for bucket in results["aggregations"][select_id]["buckets"]
+    ]
+    return iterations
+
+
+def query_sumo(
+    sumo: SumoClient,
+    case_name: str,
+    name: str,
+    iteration: str,
+    tag: str = "",
+    content: str = "timeseries",
+) -> tuple:
+    """Fetches blob ids for relevant tables, collates metadata
+    args:
+    case_name (str): name of case
+    name (str): name of table per realization
+    tag (str): tagname for table
+    content (str): table content
+    sumo_env (str): what environment to communicate with
+    """
+    logger = init_logging(__name__ + ".query_sumo")
+    query = (
+        f"fmu.case.name:{case_name} AND data.name:{name} "
+        + f"AND data.content:{content} AND fmu.iteration.id:{iteration} AND class:table"
+    )
+    print(f" query: {query}")
+    if tag:
+        query += f" AND data.tagname:{tag}"
+    logger.debug(query)
+    logger.debug(query)
+    query_results = sumo.get(path="/search", query=query, size=1000)
+    return query_results
+
+
+def query_for_table(
+    sumo: SumoClient,
+    case_name: str,
+    name: str,
+    iteration: str,
+    tag: str = "",
+    content: str = "timeseries",
+) -> tuple:
+    """Fetches blob ids for relevant tables, collates metadata
+    args:
+    case_name (str): name of case
+    name (str): name of table per realization
+    tag (str): tagname for table
+    content (str): table content
+    sumo_env (str): what environment to communicate with
+    """
+    query_results = query_sumo(sumo, case_name, name, iteration, tag, content)
+    if query_results["hits"]["total"]["value"] == 0:
+        raise RuntimeError("Query returned with no hits, if you want results: modify!")
+    results = get_blob_ids_w_metadata(query_results)
+    return results
 
 
 def uuid_from_string(string: str) -> str:
@@ -101,36 +168,9 @@ def arrow_to_table(blob_object) -> pa.Table:
     """
     try:
         table = pq.read_table(pa.BufferReader(blob_object))
-        print("In the try")
     except pa.lib.ArrowInvalid:
-        print("In the except")
         table = feather.read_table(pa.BufferReader(blob_object))
-    print(f"Type {type(table)}")
     return table
-
-
-def stat_frame_to_feather(
-    frame: pd.DataFrame, agg_meta: dict, name: str, iteration: str
-):
-    """Writes arrow format from pd.DataFrame with two multilevel index
-    args:
-    frame (pd.DataFrame): the data to write
-    agg_meta (dict): Stub for aggregated meta to be written
-    name (str): name of statistic
-    iteration (str): iteration id
-    """
-    frame_cols = frame.columns
-    for stat_type in frame_cols:
-
-        agg_frame = frame[stat_type]
-        agg_frame.columns = [name]
-        exp_cols = agg_frame.columns
-
-        # agg_meta["aggregation"] =  agg_meta.get("aggregation", {})
-        agg_meta["fmu"]["aggregation"]["operation"] = stat_type
-        write_feather(
-            agg_frame, f"{name}_{stat_type}--iter-{iteration}", agg_meta, exp_cols
-        )
 
 
 def decide_name(namer):
@@ -159,61 +199,6 @@ def decide_name(namer):
 
     logger.debug("Name of object will be: %s", name)
     return name
-
-
-def table_to_feather(
-    table: pa.Table, agg_meta: dict, iteration: str, table_type: str = None
-):
-    """Writes arrow format from pd.DataFrame
-    args:
-    frame (pd.DataFrame): the data to write
-    agg_meta (dict): Stub for aggregated meta to be written
-    iteration (str): iteration id
-    table_type (str): name to be put in metadata, if None, autodetection
-    """
-    logger = init_logging(__name__ + ".table_to_feather")
-    frame_cols = table.column_names
-    if not TMP.exists():
-        TMP.mkdir()
-
-    if table_type is not None:
-        namer = table_type
-    else:
-        namer = frame_cols
-    name = decide_name(namer)
-    logger.debug("Name: %s", name)
-    write_feather(table, f"{name}--iter-{iteration}", agg_meta, frame_cols)
-
-
-def write_feather(frame: pd.DataFrame, name: str, agg_meta: dict, columns: list):
-    """Writes feather file
-    args:
-    frame (pd.DataFrame): the data to write
-    agg_meta (dict): Stub for aggregated meta to be written
-    columns (list): the column names in the frame
-    """
-    logger = init_logging(__name__ + ".write_feather")
-    file_name = TMP / (name.lower() + ".arrow")
-    meta_name = TMP / f".{file_name.name}.yml"
-
-    agg_meta["data"]["spec"]["columns"] = columns
-    agg_meta["data"]["name"] = name
-    agg_meta["display"]["name"] = name
-    agg_meta["file"]["absolute_path"] = str(file_name.absolute())
-    agg_meta["file"]["relative_path"] = str(file_name)
-    try:
-        feather.write_feather(frame, dest=file_name)
-    except TypeError:
-        feather.write_feather(frame.to_frame(), dest=file_name)
-
-    try:
-        del agg_meta["_sumo"]
-    except KeyError:
-        logger.debug("Nothing to delete at _sumo")
-    md5 = md5sum(file_name)
-    agg_meta["file"]["checksum_md5"] = md5
-    agg_meta["fmu"]["aggregation"]["id"] = uuid_from_string(md5)
-    write_yaml(agg_meta, meta_name)
 
 
 class MetadataSet:
@@ -324,77 +309,6 @@ def get_blob_ids_w_metadata(query_results: dict) -> dict:
     return split_results_and_meta(hits)
 
 
-def query_sumo_iterations(sumo: SumoClient, case_name: str):
-    """Query for iterations on case
-    args:
-    case_name (str): name of case
-    """
-    query = f"fmu.case.name:{case_name}"
-    results = sumo.get(
-        path="/search",
-        query=query,
-        size=1,
-        select="fmu.iteration.id",
-        buckets="fmu.iteration.id",
-    )
-    print(results)
-
-
-def query_sumo(
-    sumo: SumoClient,
-    case_name: str,
-    name: str,
-    iteration: str,
-    tag: str = "",
-    content: str = "timeseries",
-) -> tuple:
-    """Fetches blob ids for relevant tables, collates metadata
-    args:
-    case_name (str): name of case
-    name (str): name of table per realization
-    tag (str): tagname for table
-    content (str): table content
-    sumo_env (str): what environment to communicate with
-    """
-    logger = init_logging(__name__ + ".query_sumo")
-    query = (
-        f"fmu.case.name:{case_name} AND data.name:{name} "
-        + f"AND data.content:{content} AND fmu.iteration.id:{iteration} AND class:table"
-    )
-    if tag:
-        query += f" AND data.tagname:{tag}"
-    logger.debug(query)
-    print(query)
-    query_results = sumo.get(path="/search", query=query, size=1000)
-    return query_results
-
-
-def query_for_table(
-    sumo: SumoClient,
-    case_name: str,
-    name: str,
-    iteration: str,
-    tag: str = "",
-    content: str = "timeseries",
-) -> tuple:
-    """Fetches blob ids for relevant tables, collates metadata
-    args:
-    case_name (str): name of case
-    name (str): name of table per realization
-    tag (str): tagname for table
-    content (str): table content
-    sumo_env (str): what environment to communicate with
-    """
-    query_results = query_sumo(sumo, case_name, name, iteration, tag, content)
-    print(query_results)
-    if query_results["hits"]["total"]["value"] == 0:
-        print("Query returned with no hits, if you want results: modify!")
-        results = ()
-    else:
-        results = get_blob_ids_w_metadata(query_results)
-    return results
-
-
 def aggregate_arrow(object_ids: Dict[str, str], sumo: SumoClient) -> pa.Table:
     """Aggregates the individual files into one large pyarrow table
     args:
@@ -430,120 +344,154 @@ def p90(array_like):
 
 def make_stat_aggregations(
     table: pa.Table,
-    meta_stub,
-    iteration,
+    vector: str,
+    table_index: Union[list, str],
     aggfuncs: list = ("mean", "min", "max", p10, p90),
 ):
-    """Makes statistical aggregations from dataframe
+    """Make statistical aggregations from pyarrow dataframe
     args
-    table (pd.DataFrame): data to process
+    table (pa.Table): data to process
     meta_stub (dict): dictionary that is start of creating proper metadata
-    iteration (str): iteration id
     aggfuncs (list): what aggregations to process
     """
     logger = init_logging(__name__ + ".make_stat_aggregations")
-    non_aggs = ["DATE", "REAL", "ENSEMBLE"]
-    stat_curves = [name for name in table.column_names if name not in non_aggs]
-    logger.info("Will do stats on these vectors %s ", stat_curves)
-    logger.debug(stat_curves)
-    for curve in stat_curves:
-        print(f"Stats on {curve}")
-        frame = table.select(["DATE", curve]).to_pandas()
-        stats = frame.groupby("DATE")[curve].agg(aggfuncs)
-        logger.debug(stats)
-        stat_frame_to_feather(stats, meta_stub, curve, iteration)
+    logger.info("Will do stats on vector %s ", vector)
+    print(f"Stats on {vector}")
+    print(table_index)
+    try:
+        group = table_index + [vector]
+    except AttributeError:
+        group = [table_index, vector]
+    print("-----------")
+    print(group)
+    print(table.column_names)
+    frame = table.select(group).to_pandas()
+    stats = pa.Table.from_pandas(frame.groupby(group)[vector].agg(aggfuncs))
+    print(stats)
     return stats
 
 
-def store_aggregated_objects(
+def prepare_object_launch(meta: dict, table, name, **kwargs):
+    """Complete metadata for object
+    args:
+    frame (pd.DataFrame): the data to write
+    agg_meta (dict): Stub for aggregated meta to be written
+    columns (list): the column names in the frame
+    """
+    logger = init_logging(__name__ + ".complete_meta")
+
+    byte_string = table_to_bytes(table)
+    md5 = md5sum(byte_string)
+    meta["file"]["checksum_md5"] = md5
+    meta["fmu"]["aggregation"]["id"] = uuid_from_string(md5)
+    meta["file"]["checksum_md5"] = md5
+    meta["fmu"]["aggregation"]["id"] = uuid_from_string(md5)
+    meta["fmu"]["aggregation"]["operation"] = kwargs.get("aggtype", "collection")
+    meta["data"]["spec"]["columns"] = table.column_names
+    meta["data"]["name"] = name
+    meta["display"]["name"] = name
+    meta["file"]["relative_path"] = f"{meta['fmu']['iteration']['id']}--{name}"
+    return byte_string, meta
+
+
+def table_to_bytes(table: pa.Table):
+    """Return table as bytestring
+
+    Args:
+        table (pa.Table): the table to be converted
+
+    Returns:
+        _type_: table as bytestring
+    """
+    sink = pa.BufferOutputStream()
+    pq.write_table(table, sink)
+    byte_string = sink.getvalue().to_pybytes()
+    print(type(byte_string))
+    return byte_string
+
+
+def upload_table(
+    sumo: SumoClient, parent_id: str, table: pa.Table, name: str, meta: dict, **kwargs
+):
+    """Upload single table
+
+    Args:
+        sumo (SumoClient): client with given environment
+        parent_id (str): the parent id of the object
+        table (pa.Table): the object to upload
+
+    Returns:
+        respons: The response of the object
+    """
+    logger = init_logging(__name__ + ".upload_table")
+    print("I am uploading")
+    byte_string, meta = prepare_object_launch(meta, table, name, **kwargs)
+    path = f"/objects('{parent_id}')"
+    response = sumo.post(path=path, json=meta)
+    print(response.text)
+    blob_url = response.json().get("blob_url")
+
+    response = sumo.blob_client.upload_blob(blob=byte_string, url=blob_url)
+    print(response.text)
+
+
+def upload_stats(
+    sumo: SumoClient, parent_id: str, table: pa.Table, name: str, meta: dict
+):
+    """Upload individual columns in table
+
+    Args:
+        sumo (SumoClient): client with given environment
+        parent_id (str): the parent object id
+        table (pa.Table): the table to split up
+        name (str): name that will appear in sumo
+        meta (dict): a metadata stub to be completed during upload
+    """
+    print(table.column_names)
+    for operation in table.column_names:
+        print(operation)
+        export_table = table.select([operation])
+        upload_table(sumo, parent_id, export_table, name, meta, aggtype=operation)
+
+
+def extract_and_upload(
+    sumo: SumoClient,
+    parent_id: str,
     table: pa.Table,
+    table_index: list,
     meta_stub: dict,
-    iteration: str,
     keep_grand_aggregation: bool = False,
 ):
-    """Stores results in temp folder
+    """Store results in temp folder
     table (pd.DataFrame): the dataframe to store
     meta_stub (dict): dictionary that is start of creating proper metadata
     keep_grand_aggregation (bool): store copy of the aggregated or not
     withstats (bool): make statistical vectors as well
     """
-    logger = init_logging(__name__ + ".store_aggregated_objects")
+    logger = init_logging(__name__ + ".extract_and_upload")
     count = 0
     if keep_grand_aggregation:
-        table_to_feather(table, meta_stub, iteration)
+        upload_table(sumo, parent_id, table, "FullyAggregated", meta_stub)
         count += 1
-    neccessaries = ["REAL"]
-    unneccessaries = ["YEARS", "SECONDS", "ENSEMBLE"]
+    neccessaries = ["REAL"] + table_index
+    unneccessaries = ["YEARS", "SECONDS", "ENSEMBLE", "REAL"]
     for col_name in table.column_names:
         if col_name in (neccessaries + unneccessaries):
             continue
 
-        logger.info("Creation of file for %s", col_name)
+        print("Working with %s", col_name)
         keep_cols = neccessaries + [col_name]
+        print(keep_cols)
         export_frame = table.select(keep_cols)
-        table_to_feather(export_frame, meta_stub, iteration)
+        upload_table(sumo, parent_id, export_frame, col_name, meta_stub)
+        stats = make_stat_aggregations(export_frame, col_name, table_index)
+        upload_stats(sumo, parent_id, stats, col_name, meta_stub)
         count += 1
     logger.info("%s files produced", count)
 
 
-# def pyarrow_to_bytes(table):
-#     """Writing frame to bytestring directly
-#     args:
-#     """
-#     sink = pa.BufferOutputStream()
-#     with pa.ipc.new_stream(sink) as writer:
-#
-#         # writer = pa.ipc.new_stream(sink, batch.schema)
-#
-#         writer.write_batch(batch)
-
-
-def meta_to_bytes(meta_path):
-    """
-    Given a path to a metadata file, find real fileread as bytes, return byte string.
-    args:
-    meta_path (str): name of metadatafile
-    returns byte_string : file as bytes
-    """
-    # Basically stolen from sumo.wrapper
-    path = meta_path.parent / meta_path.name[1:].replace(".yml", "")
-    with open(path, "rb") as stream:
-        byte_string = stream.read()
-
-    return byte_string
-
-
-def upload_aggregated(sumo: SumoClient, parent_id: str, store_dir: str = "tmp"):
-    """Uploads files to sumo
-    sumo (SumoClient): the client to use for uploading
-    store_dir (str): name of folder where results are stored
-    """
-    logger = init_logging(__name__ + ".upload_aggregated")
-    store = Path(store_dir)
-    upload_files = list(store.glob("*"))
-    logger.debug(upload_files)
-    file_count = 0
-    for upload_file in upload_files:
-        if not upload_file.name.startswith("."):
-            continue
-        print(f"File {upload_file}")
-        meta = read_yaml(upload_file)
-        byte_string = meta_to_bytes(upload_file)
-        path = f"/objects('{parent_id}')"
-        response = sumo.post(path=path, json=meta)
-        logger.debug(response.json())
-        blob_url = response.json().get("blob_url")
-        response = sumo.blob_client.upload_blob(blob=byte_string, url=blob_url)
-        # return response
-        print(response.text)
-        file_count += 1
-    logger.info("Uploaded %s files", file_count)
-    return file_count
-    # store.rmdir()
-
-
 def convert_metadata(
-    single_metadata: dict, real_ids: list, context="fmu", operation: str = "collection"
+    single_metadata: dict, real_ids: list, operation: str = "collection"
 ):
     """Makes metadata for the aggregated data from single metadata
     args:
@@ -556,17 +504,21 @@ def convert_metadata(
     """
     logger = init_logging(__name__ + ".convert_metadata")
     agg_metadata = single_metadata.copy()
+    try:
+        del agg_metadata["_sumo"]
+    except KeyError:
+        logger.debug("Nothing to delete at _sumo")
+
     # fmu.realization shall not be present
     try:
-        del agg_metadata[context]["realization"]
+        del agg_metadata["fmu"]["realization"]
     except KeyError:
         logger.debug("No realization part to delete")
     # Adding specific aggregation ones
-    agg_metadata[context]["aggregation"] = agg_metadata[context].get("aggregation", {})
-    agg_metadata[context]["aggregation"]["operation"] = operation
-    agg_metadata[context]["aggregation"]["realization_ids"] = list(real_ids)
+    agg_metadata["fmu"]["aggregation"] = agg_metadata["fmu"].get("aggregation", {})
+    agg_metadata["fmu"]["aggregation"]["operation"] = operation
+    agg_metadata["fmu"]["aggregation"]["realization_ids"] = list(real_ids)
     # Since no file on disk, trying without paths
-    agg_metadata["file"]["relative_path"] = ""
     agg_metadata["file"]["absolute_path"] = ""
     agg_metadata["data"]["spec"]["columns"] = []
 
