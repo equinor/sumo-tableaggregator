@@ -19,7 +19,6 @@ class TableAggregator:
         token (str): authentication token
         """
         sumo_env = kwargs.get("sumo_env", "prod")
-        self._delete = kwargs.get("delete", True)
         self._sumo = SumoClient(sumo_env, token)
         self._content = kwargs.get("content", "timeseries")
         self._case_name = case_name
@@ -96,13 +95,22 @@ class TableAggregator:
 
         return self._aggregated
 
+    @aggregated.setter
+    def aggregated(self, aggregated):
+        """Sets the _aggregated attribute
+
+        Args:
+            aggregated (pa.Table): aggregated results
+        """
+        self._aggregated = aggregated
+
     def aggregate(self):
         """Aggregates objects over realizations on disk
         args:
         redo (bool): shall self._aggregated be made regardless
         """
         start_time = time.perf_counter()
-        self._aggregated = ut.aggregate_arrow(self.object_ids, self.sumo)
+        self.aggregated = ut.aggregate_arrow(self.object_ids, self.sumo)
         end_time = time.perf_counter()
         print(f"Aggregated in {end_time - start_time} sec")
 
@@ -117,14 +125,3 @@ class TableAggregator:
         )
         end_time = time.perf_counter()
         print(f"Uploaded in {end_time - start_time} sec")
-
-    # def __del__(self):
-    # """Deletes tmp folder"""
-    # if self._delete:
-    # try:
-    # for single_file in self._tmp_folder.iterdir():
-    # single_file.unlink()
-
-    # self._tmp_folder.rmdir()
-    # except FileNotFoundError:
-    # print("No tmp folder exists, talk about failing fast :-)")

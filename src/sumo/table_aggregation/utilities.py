@@ -379,9 +379,10 @@ def prepare_object_launch(meta: dict, table, name, **kwargs):
     columns (list): the column names in the frame
     """
     logger = init_logging(__name__ + ".complete_meta")
-
+    logger.debug("Converting %s", table)
     byte_string = table_to_bytes(table)
     md5 = md5sum(byte_string)
+    logger.debug("Checksum %s", md5)
     meta["file"]["checksum_md5"] = md5
     meta["fmu"]["aggregation"]["id"] = uuid_from_string(md5)
     meta["file"]["checksum_md5"] = md5
@@ -391,6 +392,7 @@ def prepare_object_launch(meta: dict, table, name, **kwargs):
     meta["data"]["name"] = name
     meta["display"]["name"] = name
     meta["file"]["relative_path"] = f"{meta['fmu']['iteration']['id']}--{name}"
+    logger.debug("Metadata %s", meta)
     return byte_string, meta
 
 
@@ -424,15 +426,14 @@ def upload_table(
         respons: The response of the object
     """
     logger = init_logging(__name__ + ".upload_table")
-    print("I am uploading")
     byte_string, meta = prepare_object_launch(meta, table, name, **kwargs)
     path = f"/objects('{parent_id}')"
     response = sumo.post(path=path, json=meta)
-    print(response.text)
+    logger.debug("Response meta: %s", response.text)
     blob_url = response.json().get("blob_url")
 
     response = sumo.blob_client.upload_blob(blob=byte_string, url=blob_url)
-    print(response.text)
+    logger.debug("Response blob %s", response.text)
 
 
 def upload_stats(
