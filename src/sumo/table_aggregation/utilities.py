@@ -1,4 +1,5 @@
 """Utils for table aggregation"""
+import sys
 import logging
 import warnings
 import hashlib
@@ -352,22 +353,23 @@ def make_stat_aggregations(
     args
     table (pa.Table): data to process
     meta_stub (dict): dictionary that is start of creating proper metadata
-    aggfuncs (list): what aggregations to process
+    aggfuncs (list): statistical aggregations to include
+    logger  = init_logging(__name__ + ".table_to_bytes")st): what aggregations to process
     """
+    logger = init_logging(__name__ + ".table_to_bytes")
     logger = init_logging(__name__ + ".make_stat_aggregations")
     logger.info("Will do stats on vector %s ", vector)
-    print(f"Stats on {vector}")
-    print(table_index)
+    logger.debug("Stats on %s", vector)
+    logger.debug(table_index)
     try:
+        logger = init_logging(__name__ + ".table_to_bytes")
         group = table_index + [vector]
     except AttributeError:
         group = [table_index, vector]
-    print("-----------")
-    print(group)
-    print(table.column_names)
+    logger.debug(table.column_names)
     frame = table.select(group).to_pandas()
     stats = pa.Table.from_pandas(frame.groupby(group)[vector].agg(aggfuncs))
-    print(stats)
+    logger.debug(stats)
     return stats
 
 
@@ -381,6 +383,8 @@ def prepare_object_launch(meta: dict, table, name, **kwargs):
     logger = init_logging(__name__ + ".complete_meta")
     logger.debug("Converting %s", table)
     byte_string = table_to_bytes(table)
+    operation = kwargs.get("aggtype", "collection")
+    unique_name = f"{name}--{operation}--{meta['fmu']['iteration']['name']}"
     md5 = md5sum(byte_string)
     logger.debug("Checksum %s", md5)
     meta["file"]["checksum_md5"] = md5
@@ -391,8 +395,9 @@ def prepare_object_launch(meta: dict, table, name, **kwargs):
     meta["data"]["spec"]["columns"] = table.column_names
     meta["data"]["name"] = name
     meta["display"]["name"] = name
-    meta["file"]["relative_path"] = f"{meta['fmu']['iteration']['id']}--{name}"
+    meta["file"]["relative_path"] = unique_name
     logger.debug("Metadata %s", meta)
+    print(f"Object {unique_name} ready for launch")
     return byte_string, meta
 
 
@@ -405,13 +410,49 @@ def table_to_bytes(table: pa.Table):
     Returns:
         _type_: table as bytestring
     """
+    logger = init_logging(__name__ + ".table_to_bytes")
     sink = pa.BufferOutputStream()
     pq.write_table(table, sink)
     byte_string = sink.getvalue().to_pybytes()
-    print(type(byte_string))
+    logger.debug(type(byte_string))
     return byte_string
 
 
+# def poster(func):
+# response = "0"
+# success_response = ("200", "201")
+# while response not in success_response:
+# try:
+# response = func(*args)
+# logger.debug("Response meta: %s", response.text)
+# except Exception:
+# exp_type, _, _ = sys.exc_info()
+# logger.debug("Exception %s while uploading metadata", exp_type)
+
+# def post_meta(parent_id: str, meta: dict):
+# """posting metadata to sumo
+
+# Args:
+# parent_id (str): the parent to object
+# meta (dict): the metadata
+# """
+# path = f"/objects('{parent_id}')"
+# return sumo.post(path=path, json=meta)
+
+
+# def post_blob(meta_response, byte_string: bytes):
+
+# """posting metadata to sumo
+
+# Args:
+# parent_id (str): the parent to object
+# meta (dict): the metadata
+# """
+# blob_url = meta_response.json().get("blob_url")
+# return sumo.blob_client.upload_blob(blob=byte_string, url=blob_url)
+
+
+# derive_rspnr()
 def upload_table(
     sumo: SumoClient, parent_id: str, table: pa.Table, name: str, meta: dict, **kwargs
 ):
@@ -426,14 +467,30 @@ def upload_table(
         respons: The response of the object
     """
     logger = init_logging(__name__ + ".upload_table")
+    print(parent_id)
     byte_string, meta = prepare_object_launch(meta, table, name, **kwargs)
     path = f"/objects('{parent_id}')"
-    response = sumo.post(path=path, json=meta)
-    logger.debug("Response meta: %s", response.text)
-    blob_url = response.json().get("blob_url")
+    rsp_nr = "0"
+    success_response = (200, 201)
+    while rsp_nr not in success_response:
+        try:
+            response = sumo.post(path=path, json=meta)
+            rsp_nr = response.status_code
+            print("response meta: %s", rsp_nr)
+        except Exception:
+            exp_type, _, _ = sys.exc_info()
+            print("Exception %s while uploading metadata", exp_type)
 
-    response = sumo.blob_client.upload_blob(blob=byte_string, url=blob_url)
-    logger.debug("Response blob %s", response.text)
+    blob_url = response.json().get("blob_url")
+    rsp_nr = "0"
+    while rsp_nr not in success_response:
+        try:
+            response = sumo.blob_client.upload_blob(blob=byte_string, url=blob_url)
+            rsp_nr = response.status_code
+            print("Response blob %s", rsp_nr)
+        except Exception:
+            exp_type, _, _ = sys.exc_info()
+            print("Exception %s while uploading metadata", exp_type)
 
 
 def upload_stats(
@@ -479,7 +536,8 @@ def extract_and_upload(
     for col_name in table.column_names:
         if col_name in (neccessaries + unneccessaries):
             continue
-
+        if not col_name.startswith("FOP"):
+            continue
         print("Working with %s", col_name)
         keep_cols = neccessaries + [col_name]
         print(keep_cols)

@@ -124,4 +124,4 @@ class TableAggregator:
             self.sumo, self.parent_id, self.aggregated, self.table_index, self.base_meta
         )
         end_time = time.perf_counter()
-        print(f"Uploaded in {end_time - start_time} sec")
+        print(f"Uploaded in {end_time - start_time: 3.1f} sec")
