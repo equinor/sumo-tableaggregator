@@ -3,8 +3,7 @@ import time
 import pandas as pd
 from sumo.wrapper import SumoClient
 import sumo.table_aggregation.utilities as ut
-
-# import asyncio
+import asyncio
 
 
 class TableAggregator:
@@ -119,12 +118,14 @@ class TableAggregator:
     def upload(self):
         """Uploads data to sumo"""
         start_time = time.perf_counter()
-        ut.extract_and_upload(
-            self.sumo,
-            self.parent_id,
-            self.aggregated,
-            self.table_index,
-            self.base_meta,
+        asyncio.run(
+            ut.extract_and_upload(
+                self.sumo,
+                self.parent_id,
+                self.aggregated,
+                self.table_index,
+                self.base_meta,
+            )
         )
         end_time = time.perf_counter()
         print(f"Uploaded in {end_time - start_time: 3.1f} sec")

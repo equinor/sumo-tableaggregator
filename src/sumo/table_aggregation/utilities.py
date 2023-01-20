@@ -5,6 +5,8 @@ import warnings
 import hashlib
 import uuid
 from typing import Dict, Union
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import yaml
 import numpy as np
 import pyarrow as pa
@@ -447,6 +449,12 @@ def table_to_bytes(table: pa.Table):
 # return sumo.blob_client.upload_blob(blob=byte_string, url=blob_url)
 
 
+async def call_parallel(loop, func, *args):
+    """Execute blocking function in an event loop"""
+    executor = ThreadPoolExecutor()
+    return await loop.run_in_executor(executor, func, *args)
+
+
 def upload_table(
     sumo: SumoClient, parent_id: str, table: pa.Table, name: str, meta: dict, **kwargs
 ):
@@ -506,7 +514,7 @@ def upload_stats(
         upload_table(sumo, parent_id, export_table, name, meta, aggtype=operation)
 
 
-def extract_and_upload(
+async def extract_and_upload(
     sumo: SumoClient,
     parent_id: str,
     table: pa.Table,
@@ -521,6 +529,7 @@ def extract_and_upload(
     withstats (bool): make statistical vectors as well
     """
     logger = init_logging(__name__ + ".extract_and_upload")
+    loop = asyncio.get_event_loop()
     count = 0
     if keep_grand_aggregation:
         upload_table(sumo, parent_id, table, "FullyAggregated", meta_stub)
@@ -536,9 +545,19 @@ def extract_and_upload(
         keep_cols = neccessaries + [col_name]
         print(keep_cols)
         export_frame = table.select(keep_cols)
-        upload_table(sumo, parent_id, export_frame, col_name, meta_stub)
-        stats = make_stat_aggregations(export_frame, col_name, table_index)
-        upload_stats(sumo, parent_id, stats, col_name, meta_stub)
+        # upload_table(sumo, parent_id, export_frame, col_name, meta_stub)
+        await call_parallel(
+            loop, upload_table, sumo, parent_id, export_frame, col_name, meta_stub
+        )
+        # stats = make_stat_aggregations(export_frame, col_name, table_index)
+        stats = await call_parallel(
+            loop, make_stat_aggregations, export_frame, col_name, table_index
+        )
+        print(stats)
+        # upload_stats(sumo, parent_id, stats, col_name, meta_stub)
+        await call_parallel(
+            loop, upload_stats, sumo, parent_id, stats, col_name, meta_stub
+        )
         count += 1
     logger.info("%s files produced", count)
 
