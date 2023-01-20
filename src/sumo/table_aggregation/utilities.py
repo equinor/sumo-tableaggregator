@@ -356,21 +356,16 @@ def make_stat_aggregations(
     aggfuncs (list): statistical aggregations to include
     logger  = init_logging(__name__ + ".table_to_bytes")st): what aggregations to process
     """
-    logger = init_logging(__name__ + ".table_to_bytes")
     logger = init_logging(__name__ + ".make_stat_aggregations")
     logger.info("Will do stats on vector %s ", vector)
     logger.debug("Stats on %s", vector)
     logger.debug(table_index)
-    try:
-        logger = init_logging(__name__ + ".table_to_bytes")
-        group = table_index + [vector]
-    except AttributeError:
-        group = [table_index, vector]
     logger.debug(table.column_names)
-    frame = table.select(group).to_pandas()
-    stats = pa.Table.from_pandas(frame.groupby(group)[vector].agg(aggfuncs))
+    frame = table.to_pandas()
+    stats = pa.Table.from_pandas(frame.groupby(table_index)[vector].agg(aggfuncs))
+    keepers = [name for name in stats.column_names if name not in table_index]
     logger.debug(stats)
-    return stats
+    return stats.select(keepers)
 
 
 def prepare_object_launch(meta: dict, table, name, **kwargs):
@@ -452,7 +447,6 @@ def table_to_bytes(table: pa.Table):
 # return sumo.blob_client.upload_blob(blob=byte_string, url=blob_url)
 
 
-# derive_rspnr()
 def upload_table(
     sumo: SumoClient, parent_id: str, table: pa.Table, name: str, meta: dict, **kwargs
 ):
@@ -577,6 +571,7 @@ def convert_metadata(
     agg_metadata["fmu"]["aggregation"] = agg_metadata["fmu"].get("aggregation", {})
     agg_metadata["fmu"]["aggregation"]["operation"] = operation
     agg_metadata["fmu"]["aggregation"]["realization_ids"] = list(real_ids)
+    agg_metadata["fmu"]["context"]["stage"] = "iteration"
     # Since no file on disk, trying without paths
     agg_metadata["file"]["absolute_path"] = ""
     agg_metadata["data"]["spec"]["columns"] = []
