@@ -118,13 +118,15 @@ class TableAggregator:
     def upload(self):
         """Uploads data to sumo"""
         start_time = time.perf_counter()
-        asyncio.run(
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(
             ut.extract_and_upload(
                 self.sumo,
                 self.parent_id,
                 self.aggregated,
                 self.table_index,
                 self.base_meta,
+                loop,
             )
         )
         end_time = time.perf_counter()

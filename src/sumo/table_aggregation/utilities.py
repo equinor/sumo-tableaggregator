@@ -370,7 +370,7 @@ def make_stat_aggregations(
     return stats.select(keepers)
 
 
-def prepare_object_launch(meta: dict, table, name, **kwargs):
+def prepare_object_launch(meta: dict, table, name, operation):
     """Complete metadata for object
     args:
     frame (pd.DataFrame): the data to write
@@ -380,7 +380,6 @@ def prepare_object_launch(meta: dict, table, name, **kwargs):
     logger = init_logging(__name__ + ".complete_meta")
     logger.debug("Converting %s", table)
     byte_string = table_to_bytes(table)
-    operation = kwargs.get("aggtype", "collection")
     unique_name = f"{name}--{operation}--{meta['fmu']['iteration']['name']}"
     md5 = md5sum(byte_string)
     logger.debug("Checksum %s", md5)
@@ -388,7 +387,7 @@ def prepare_object_launch(meta: dict, table, name, **kwargs):
     meta["fmu"]["aggregation"]["id"] = uuid_from_string(md5)
     meta["file"]["checksum_md5"] = md5
     meta["fmu"]["aggregation"]["id"] = uuid_from_string(md5)
-    meta["fmu"]["aggregation"]["operation"] = kwargs.get("aggtype", "collection")
+    meta["fmu"]["aggregation"]["operation"] = operation
     meta["data"]["spec"]["columns"] = table.column_names
     meta["data"]["name"] = name
     meta["display"]["name"] = name
@@ -456,7 +455,7 @@ async def call_parallel(loop, func, *args):
 
 
 def upload_table(
-    sumo: SumoClient, parent_id: str, table: pa.Table, name: str, meta: dict, **kwargs
+    sumo: SumoClient, parent_id: str, table: pa.Table, name: str, meta: dict, operation
 ):
     """Upload single table
 
@@ -470,7 +469,7 @@ def upload_table(
     """
     logger = init_logging(__name__ + ".upload_table")
     print(parent_id)
-    byte_string, meta = prepare_object_launch(meta, table, name, **kwargs)
+    byte_string, meta = prepare_object_launch(meta, table, name, operation)
     path = f"/objects('{parent_id}')"
     rsp_nr = "0"
     success_response = (200, 201)
@@ -495,8 +494,8 @@ def upload_table(
             print("Exception %s while uploading metadata", exp_type)
 
 
-def upload_stats(
-    sumo: SumoClient, parent_id: str, table: pa.Table, name: str, meta: dict
+async def upload_stats(
+    sumo: SumoClient, parent_id: str, table: pa.Table, name: str, meta: dict, loop
 ):
     """Upload individual columns in table
 
@@ -511,7 +510,17 @@ def upload_stats(
     for operation in table.column_names:
         print(operation)
         export_table = table.select([operation])
-        upload_table(sumo, parent_id, export_table, name, meta, aggtype=operation)
+        # upload_table(sumo, parent_id, export_table, name, meta, aggtype=operation)
+        await call_parallel(
+            loop,
+            upload_table,
+            sumo,
+            parent_id,
+            export_table,
+            name,
+            meta,
+            operation,
+        )
 
 
 async def extract_and_upload(
@@ -520,6 +529,7 @@ async def extract_and_upload(
     table: pa.Table,
     table_index: list,
     meta_stub: dict,
+    loop,
     keep_grand_aggregation: bool = False,
 ):
     """Store results in temp folder
@@ -529,10 +539,10 @@ async def extract_and_upload(
     withstats (bool): make statistical vectors as well
     """
     logger = init_logging(__name__ + ".extract_and_upload")
-    loop = asyncio.get_event_loop()
+
     count = 0
     if keep_grand_aggregation:
-        upload_table(sumo, parent_id, table, "FullyAggregated", meta_stub)
+        upload_table(sumo, parent_id, table, "FullyAggregated", meta_stub, "collection")
         count += 1
     neccessaries = ["REAL"] + table_index
     unneccessaries = ["YEARS", "SECONDS", "ENSEMBLE", "REAL"]
@@ -547,17 +557,24 @@ async def extract_and_upload(
         export_frame = table.select(keep_cols)
         # upload_table(sumo, parent_id, export_frame, col_name, meta_stub)
         await call_parallel(
-            loop, upload_table, sumo, parent_id, export_frame, col_name, meta_stub
+            loop,
+            upload_table,
+            sumo,
+            parent_id,
+            export_frame,
+            col_name,
+            meta_stub,
+            "collection",
         )
         # stats = make_stat_aggregations(export_frame, col_name, table_index)
         stats = await call_parallel(
             loop, make_stat_aggregations, export_frame, col_name, table_index
         )
         print(stats)
-        # upload_stats(sumo, parent_id, stats, col_name, meta_stub)
-        await call_parallel(
-            loop, upload_stats, sumo, parent_id, stats, col_name, meta_stub
-        )
+        await upload_stats(sumo, parent_id, stats, col_name, meta_stub, loop)
+        # await call_parallel(
+        # loop, upload_stats, sumo, parent_id, stats, col_name, meta_stub
+        # )
         count += 1
     logger.info("%s files produced", count)
 
