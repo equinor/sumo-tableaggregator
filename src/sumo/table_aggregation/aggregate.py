@@ -4,6 +4,7 @@ import pandas as pd
 from sumo.wrapper import SumoClient
 import sumo.table_aggregation.utilities as ut
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 
 class TableAggregator:
@@ -119,6 +120,7 @@ class TableAggregator:
         """Uploads data to sumo"""
         start_time = time.perf_counter()
         loop = asyncio.get_event_loop()
+        executor = ThreadPoolExecutor()
         loop.run_until_complete(
             ut.extract_and_upload(
                 self.sumo,
@@ -127,6 +129,7 @@ class TableAggregator:
                 self.table_index,
                 self.base_meta,
                 loop,
+                executor,
             )
         )
         end_time = time.perf_counter()

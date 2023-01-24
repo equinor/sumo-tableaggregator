@@ -282,7 +282,7 @@ def split_results_and_meta(results: list) -> dict:
             real = real_meta["fmu"].pop("realization")
             name = real["id"]
         except KeyError:
-            logger.warning("No realization in result, allready aggregation?")
+            logger.warning("No realization in result, already aggregation?")
         meta.add_realisation(name, real["parameters"])
         blob_ids[name] = result["_id"]
     agg_meta = meta.base_meta(real_meta)
@@ -393,7 +393,7 @@ def prepare_object_launch(meta: dict, table, name, operation):
     meta["display"]["name"] = name
     meta["file"]["relative_path"] = unique_name
     logger.debug("Metadata %s", meta)
-    print(f"Object {unique_name} ready for launch")
+    logger.debug(f"Object {unique_name} ready for launch")
     return byte_string, meta
 
 
@@ -448,9 +448,10 @@ def table_to_bytes(table: pa.Table):
 # return sumo.blob_client.upload_blob(blob=byte_string, url=blob_url)
 
 
-async def call_parallel(loop, func, *args):
+async def call_parallel(loop, executor, func, *args):
     """Execute blocking function in an event loop"""
-    executor = ThreadPoolExecutor()
+    # executor = ThreadPoolExecutor()
+    executor = None
     return await loop.run_in_executor(executor, func, *args)
 
 
@@ -468,7 +469,7 @@ def upload_table(
         respons: The response of the object
     """
     logger = init_logging(__name__ + ".upload_table")
-    print(parent_id)
+    logger.debug(parent_id)
     byte_string, meta = prepare_object_launch(meta, table, name, operation)
     path = f"/objects('{parent_id}')"
     rsp_nr = "0"
@@ -477,10 +478,10 @@ def upload_table(
         try:
             response = sumo.post(path=path, json=meta)
             rsp_nr = response.status_code
-            print("response meta: %s", rsp_nr)
+            logger.debug("response meta: %s", rsp_nr)
         except Exception:
             exp_type, _, _ = sys.exc_info()
-            print("Exception %s while uploading metadata", exp_type)
+            logger.debug("Exception %s while uploading metadata", exp_type)
 
     blob_url = response.json().get("blob_url")
     rsp_nr = "0"
@@ -488,14 +489,20 @@ def upload_table(
         try:
             response = sumo.blob_client.upload_blob(blob=byte_string, url=blob_url)
             rsp_nr = response.status_code
-            print("Response blob %s", rsp_nr)
+            logger.debug("Response blob %s", rsp_nr)
         except Exception:
             exp_type, _, _ = sys.exc_info()
-            print("Exception %s while uploading metadata", exp_type)
+            logger.debug("Exception %s while uploading metadata", exp_type)
 
 
 async def upload_stats(
-    sumo: SumoClient, parent_id: str, table: pa.Table, name: str, meta: dict, loop
+    sumo: SumoClient,
+    parent_id: str,
+    table: pa.Table,
+    name: str,
+    meta: dict,
+    loop,
+    executor,
 ):
     """Upload individual columns in table
 
@@ -506,13 +513,15 @@ async def upload_stats(
         name (str): name that will appear in sumo
         meta (dict): a metadata stub to be completed during upload
     """
-    print(table.column_names)
+    logger = init_logging(__name__ + ".upload_stats")
+    logger.debug(table.column_names)
     for operation in table.column_names:
-        print(operation)
+        logger.debug(operation)
         export_table = table.select([operation])
         # upload_table(sumo, parent_id, export_table, name, meta, aggtype=operation)
         await call_parallel(
             loop,
+            executor,
             upload_table,
             sumo,
             parent_id,
@@ -530,6 +539,7 @@ async def extract_and_upload(
     table_index: list,
     meta_stub: dict,
     loop,
+    executor,
     keep_grand_aggregation: bool = False,
 ):
     """Store results in temp folder
@@ -549,15 +559,16 @@ async def extract_and_upload(
     for col_name in table.column_names:
         if col_name in (neccessaries + unneccessaries):
             continue
-        if not col_name.startswith("FOP"):
-            continue
-        print("Working with %s", col_name)
+        # if not col_name.startswith("FOP"):
+        # continue
+        logger.debug("Working with %s", col_name)
         keep_cols = neccessaries + [col_name]
-        print(keep_cols)
+        logger.debug(keep_cols)
         export_frame = table.select(keep_cols)
         # upload_table(sumo, parent_id, export_frame, col_name, meta_stub)
         await call_parallel(
             loop,
+            executor,
             upload_table,
             sumo,
             parent_id,
@@ -568,10 +579,10 @@ async def extract_and_upload(
         )
         # stats = make_stat_aggregations(export_frame, col_name, table_index)
         stats = await call_parallel(
-            loop, make_stat_aggregations, export_frame, col_name, table_index
+            loop, executor, make_stat_aggregations, export_frame, col_name, table_index
         )
-        print(stats)
-        await upload_stats(sumo, parent_id, stats, col_name, meta_stub, loop)
+        logger.debug(stats)
+        await upload_stats(sumo, parent_id, stats, col_name, meta_stub, loop, executor)
         # await call_parallel(
         # loop, upload_stats, sumo, parent_id, stats, col_name, meta_stub
         # )
