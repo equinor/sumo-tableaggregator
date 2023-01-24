@@ -393,7 +393,7 @@ def prepare_object_launch(meta: dict, table, name, operation):
     meta["display"]["name"] = name
     meta["file"]["relative_path"] = unique_name
     logger.debug("Metadata %s", meta)
-    logger.debug(f"Object {unique_name} ready for launch")
+    logger.debug("Object %s ready for launch", unique_name)
     return byte_string, meta
 
 
@@ -515,21 +515,26 @@ async def upload_stats(
     """
     logger = init_logging(__name__ + ".upload_stats")
     logger.debug(table.column_names)
+    tasks = []
+    print(table.column_names)
     for operation in table.column_names:
-        logger.debug(operation)
+        logger.info(operation)
         export_table = table.select([operation])
         # upload_table(sumo, parent_id, export_table, name, meta, aggtype=operation)
-        await call_parallel(
-            loop,
-            executor,
-            upload_table,
-            sumo,
-            parent_id,
-            export_table,
-            name,
-            meta,
-            operation,
+        tasks.append(
+            call_parallel(
+                loop,
+                executor,
+                upload_table,
+                sumo,
+                parent_id,
+                export_table,
+                name,
+                meta,
+                operation,
+            )
         )
+    return tasks
 
 
 async def extract_and_upload(
@@ -556,6 +561,8 @@ async def extract_and_upload(
         count += 1
     neccessaries = ["REAL"] + table_index
     unneccessaries = ["YEARS", "SECONDS", "ENSEMBLE", "REAL"]
+    # task scheduler
+    tasks = []
     for col_name in table.column_names:
         if col_name in (neccessaries + unneccessaries):
             continue
@@ -566,27 +573,36 @@ async def extract_and_upload(
         logger.debug(keep_cols)
         export_frame = table.select(keep_cols)
         # upload_table(sumo, parent_id, export_frame, col_name, meta_stub)
-        await call_parallel(
-            loop,
-            executor,
-            upload_table,
-            sumo,
-            parent_id,
-            export_frame,
-            col_name,
-            meta_stub,
-            "collection",
+        tasks.append(
+            call_parallel(
+                loop,
+                executor,
+                upload_table,
+                sumo,
+                parent_id,
+                export_frame,
+                col_name,
+                meta_stub,
+                "collection",
+            )
         )
-        # stats = make_stat_aggregations(export_frame, col_name, table_index)
-        stats = await call_parallel(
-            loop, executor, make_stat_aggregations, export_frame, col_name, table_index
-        )
+        print(len(tasks))
+        stats = make_stat_aggregations(export_frame, col_name, table_index)
+        # stats = call_parallel(
+        # loop, executor, make_stat_aggregations, export_frame, col_name, table_index
+        # )
         logger.debug(stats)
-        await upload_stats(sumo, parent_id, stats, col_name, meta_stub, loop, executor)
+        tasks.extend(
+            await upload_stats(
+                sumo, parent_id, stats, col_name, meta_stub, loop, executor
+            )
+        )
         # await call_parallel(
         # loop, upload_stats, sumo, parent_id, stats, col_name, meta_stub
         # )
         count += 1
+    print(f"Tasks to run {len(tasks)}")
+    await asyncio.gather(*tasks)
     logger.info("%s files produced", count)
 
 
