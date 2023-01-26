@@ -1,10 +1,10 @@
 """Contains classes for aggregation of tables"""
 import time
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 from sumo.wrapper import SumoClient
 import sumo.table_aggregation.utilities as ut
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
 
 
 class TableAggregator:

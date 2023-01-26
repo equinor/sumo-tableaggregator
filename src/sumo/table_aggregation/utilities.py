@@ -6,7 +6,7 @@ import hashlib
 import uuid
 from typing import Dict, Union
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
+from multiprocessing import Pool
 import yaml
 import numpy as np
 import pyarrow as pa
@@ -105,7 +105,7 @@ def query_sumo(
         f"fmu.case.name:{case_name} AND data.name:{name} "
         + f"AND data.content:{content} AND fmu.iteration.id:{iteration} AND class:table"
     )
-    print(f" query: {query}")
+    # print(f" query: {query}")
     if tag:
         query += f" AND data.tagname:{tag}"
     logger.debug(query)
@@ -319,11 +319,11 @@ def reconstruct_table(object_id: str, real_nr: str, sumo: SumoClient) -> pa.Tabl
     Returns:
         pa.Table: The table
     """
-    print(f"Real {real_nr}")
+    # print(f"Real {real_nr}")
     real_table = get_object(object_id, sumo)
     rows = real_table.shape[0]
     real_table = real_table.add_column(0, "REAL", pa.array([real_nr] * rows))
-    print(real_table)
+    # print(real_table)
     return real_table
 
 
@@ -342,7 +342,7 @@ async def aggregate_arrow(
             call_parallel(loop, None, reconstruct_table, object_id, real_nr, sumo)
         )
     aggregated = pa.concat_tables(await asyncio.gather(*aggregated))
-    print(aggregated)
+    # print(aggregated)
     return aggregated
 
 
@@ -363,10 +363,11 @@ def p90(array_like):
 
 
 def make_stat_aggregations(
+    # input_args,
     table: pa.Table,
     vector: str,
     table_index: Union[list, str],
-    aggfuncs: list = ("mean", "min", "max", p10, p90),
+    # aggfuncs: list = ("mean", "min", "max", p10, p90),
 ):
     """Make statistical aggregations from pyarrow dataframe
     args
@@ -375,6 +376,8 @@ def make_stat_aggregations(
     aggfuncs (list): statistical aggregations to include
     logger  = init_logging(__name__ + ".table_to_bytes")st): what aggregations to process
     """
+    aggfuncs: list = ("mean", "min", "max", p10, p90)
+    # table, vector, table_index = input_args
     logger = init_logging(__name__ + ".make_stat_aggregations")
     logger.info("Will do stats on vector %s ", vector)
     logger.debug("Stats on %s", vector)
@@ -467,8 +470,6 @@ def table_to_bytes(table: pa.Table):
 
 async def call_parallel(loop, executor, func, *args):
     """Execute blocking function in an event loop"""
-    # executor = ThreadPoolExecutor()
-    executor = None
     return await loop.run_in_executor(executor, func, *args)
 
 
@@ -515,7 +516,7 @@ def upload_table(
 async def upload_stats(
     sumo: SumoClient,
     parent_id: str,
-    table: pa.Table,
+    table,
     name: str,
     meta: dict,
     loop,
@@ -533,7 +534,7 @@ async def upload_stats(
     logger = init_logging(__name__ + ".upload_stats")
     logger.debug(table.column_names)
     tasks = []
-    print(table.column_names)
+    # print(table.column_names)
     for operation in table.column_names:
         logger.info(operation)
         export_table = table.select([operation])
@@ -581,6 +582,7 @@ async def extract_and_upload(
     # task scheduler
     tasks = []
     for col_name in table.column_names:
+        stat_input = []
         if col_name in (neccessaries + unneccessaries):
             continue
         # if not col_name.startswith("FOP"):
@@ -589,6 +591,7 @@ async def extract_and_upload(
         keep_cols = neccessaries + [col_name]
         logger.debug(keep_cols)
         export_frame = table.select(keep_cols)
+        stat_input.append((export_frame, col_name, table_index))
         # upload_table(sumo, parent_id, export_frame, col_name, meta_stub)
         tasks.append(
             call_parallel(
@@ -603,22 +606,22 @@ async def extract_and_upload(
                 "collection",
             )
         )
-        print(len(tasks))
-        stats = make_stat_aggregations(export_frame, col_name, table_index)
-        # stats = call_parallel(
-        # loop, executor, make_stat_aggregations, export_frame, col_name, table_index
-        # )
-        logger.debug(stats)
+        # print(len(tasks))
+        # p = Pool()
+        # stats_dict_list = p.starmap(make_stat_aggregations, stat_params)
+
+        count += 1
+        stat_output = []
+        # print(len(stat_input))
+        # exit()
+        with Pool() as pool:
+            stat_output = pool.starmap(make_stat_aggregations, stat_input)
         tasks.extend(
             await upload_stats(
-                sumo, parent_id, stats, col_name, meta_stub, loop, executor
+                sumo, parent_id, stat_output.pop(), col_name, meta_stub, loop, executor
             )
         )
-        # await call_parallel(
-        # loop, upload_stats, sumo, parent_id, stats, col_name, meta_stub
-        # )
-        count += 1
-    print(f"Tasks to run {len(tasks)}")
+    # print(f"Tasks to run {len(tasks)}")
     await asyncio.gather(*tasks)
     logger.info("%s files produced", count)
 
