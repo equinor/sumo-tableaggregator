@@ -28,7 +28,6 @@ def init_logging(name: str) -> logging.Logger:
     return logger
 
 
-# The two functions below are stolen from fmu.dataio._utils
 def md5sum(bytes_string: bytes) -> str:
     """Make checksum from bytestring
     args:
@@ -143,9 +142,6 @@ def uuid_from_string(string: str) -> str:
     string (str): the string to make uuid from
     """
     return str(uuid.UUID(hashlib.md5(string.encode("utf-8")).hexdigest()))
-
-
-# END of steal
 
 
 def get_object(object_id: str, sumo: SumoClient) -> pa.Table:
@@ -312,6 +308,25 @@ def get_blob_ids_w_metadata(query_results: dict) -> dict:
     return split_results_and_meta(hits)
 
 
+def reconstruct_table(object_id: str, real_nr: str, sumo: SumoClient) -> pa.Table:
+    """Reconstruct pa.Table from sumo object id
+
+    Args:
+        object_id (str): the object to fetch
+        real_nr (str): the real nr of the object
+        sumo (SumoClient): The environment to read from
+
+    Returns:
+        pa.Table: The table
+    """
+    print(f"Real {real_nr}")
+    real_table = get_object(object_id, sumo)
+    rows = real_table.shape[0]
+    real_table = real_table.add_column(0, "REAL", pa.array([real_nr] * rows))
+    print(real_table)
+    return real_table
+
+
 def aggregate_arrow(object_ids: Dict[str, str], sumo: SumoClient) -> pa.Table:
     """Aggregates the individual files into one large pyarrow table
     args:
@@ -320,12 +335,9 @@ def aggregate_arrow(object_ids: Dict[str, str], sumo: SumoClient) -> pa.Table:
     """
     aggregated = []
     for real_nr, object_id in object_ids.items():
-        print(f"Real {real_nr}")
-        real_table = get_object(object_id, sumo)
-        rows = real_table.shape[0]
-        aggregated.append(real_table.add_column(0, "REAL", pa.array([real_nr] * rows)))
+        aggregated.append(reconstruct_table(object_id, real_nr, sumo))
     aggregated = pa.concat_tables(aggregated)
-
+    print(aggregated)
     return aggregated
 
 
