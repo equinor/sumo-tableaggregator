@@ -327,16 +327,21 @@ def reconstruct_table(object_id: str, real_nr: str, sumo: SumoClient) -> pa.Tabl
     return real_table
 
 
-def aggregate_arrow(object_ids: Dict[str, str], sumo: SumoClient) -> pa.Table:
+async def aggregate_arrow(
+    object_ids: Dict[str, str], sumo: SumoClient, loop
+) -> pa.Table:
     """Aggregates the individual files into one large pyarrow table
     args:
     object_ids (dict): key is real nr, value is object id
+    loop (asyncio.event_loop)
     returns: aggregated (pa.Table): the aggregated results
     """
     aggregated = []
     for real_nr, object_id in object_ids.items():
-        aggregated.append(reconstruct_table(object_id, real_nr, sumo))
-    aggregated = pa.concat_tables(aggregated)
+        aggregated.append(
+            call_parallel(loop, None, reconstruct_table, object_id, real_nr, sumo)
+        )
+    aggregated = pa.concat_tables(await asyncio.gather(*aggregated))
     print(aggregated)
     return aggregated
 

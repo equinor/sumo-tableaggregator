@@ -25,6 +25,7 @@ class TableAggregator:
         self._content = kwargs.get("content", "timeseries")
         self._case_name = case_name
         self._name = name
+        self.loop = asyncio.get_event_loop()
         self._iteration = iteration
         self._table_index = ["DATE"]
         # try:
@@ -112,23 +113,24 @@ class TableAggregator:
         redo (bool): shall self._aggregated be made regardless
         """
         start_time = time.perf_counter()
-        self.aggregated = ut.aggregate_arrow(self.object_ids, self.sumo)
+        self.aggregated = self.loop.run_until_complete(
+            ut.aggregate_arrow(self.object_ids, self.sumo, self.loop)
+        )
         end_time = time.perf_counter()
         print(f"Aggregated in {end_time - start_time} sec")
 
     def upload(self):
         """Uploads data to sumo"""
         start_time = time.perf_counter()
-        loop = asyncio.get_event_loop()
         executor = ThreadPoolExecutor()
-        loop.run_until_complete(
+        self.loop.run_until_complete(
             ut.extract_and_upload(
                 self.sumo,
                 self.parent_id,
                 self.aggregated,
                 self.table_index,
                 self.base_meta,
-                loop,
+                self.loop,
                 executor,
             )
         )
