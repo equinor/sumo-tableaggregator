@@ -541,7 +541,7 @@ def upload_table(
 def upload_stats(
     sumo: SumoClient,
     parent_id: str,
-    table,
+    tables,
     name: str,
     meta: dict,
     loop,
@@ -552,18 +552,18 @@ def upload_stats(
     Args:
         sumo (SumoClient): client with given environment
         parent_id (str): the parent object id
-        table (pa.Table): the table to split up
+        tables (list): list of pa.Tables
         name (str): name that will appear in sumo
         meta (dict): a metadata stub to be completed during upload
     """
     logger = init_logging(__name__ + ".upload_stats")
     # logger.debug(table.column_names)
     tasks = []
-    logger.debug(table.column_names)
-    for tab in table:
+    logger.debug("%s tables to upload", len(tables))
+    for table in tables:
         # logger.info(operation)
         # export_table = table.select([operation])
-        operation = tab.column_names.pop()
+        operation = table.column_names.pop()
         # upload_table(sumo, parent_id, export_table, name, meta, aggtype=operation)
         tasks.append(
             call_parallel(
@@ -572,7 +572,7 @@ def upload_stats(
                 upload_table,
                 sumo,
                 parent_id,
-                tab,
+                table,
                 name,
                 meta,
                 operation,
