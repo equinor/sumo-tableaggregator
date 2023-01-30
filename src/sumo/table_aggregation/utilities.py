@@ -105,7 +105,7 @@ def query_sumo(
         f"fmu.case.name:{case_name} AND data.name:{name} "
         + f"AND data.content:{content} AND fmu.iteration.id:{iteration} AND class:table"
     )
-    # print(f" query: {query}")
+    logger.debug(" query: %s ", query)
     if tag:
         query += f" AND data.tagname:{tag}"
     logger.debug(query)
@@ -319,11 +319,12 @@ def reconstruct_table(object_id: str, real_nr: str, sumo: SumoClient) -> pa.Tabl
     Returns:
         pa.Table: The table
     """
-    # print(f"Real {real_nr}")
+    logger = init_logging(__name__ + ".reconstruct_table")
+    logger.debug("Real %s", real_nr)
     real_table = get_object(object_id, sumo)
     rows = real_table.shape[0]
     real_table = real_table.add_column(0, "REAL", pa.array([real_nr] * rows))
-    # print(real_table)
+    logger.debug(real_table)
     return real_table
 
 
@@ -342,7 +343,6 @@ async def aggregate_arrow(
             call_parallel(loop, None, reconstruct_table, object_id, real_nr, sumo)
         )
     aggregated = pa.concat_tables(await asyncio.gather(*aggregated))
-    # print(aggregated)
     return aggregated
 
 
@@ -362,6 +362,28 @@ def p90(array_like):
     return np.percentile(array_like, 10)
 
 
+def do_stats(frame, index, vector, aggdict, aggname):
+    """Make single stat from table
+
+    Args:
+        frame (pd.DataFrame): the table to interrogate
+        index (list): what to group over
+        vector (str): the column to make stat on
+        aggfuncs (str): the statistical operation
+
+    Returns:
+        pa.Table: the static
+    """
+    # frame = table.to_pandas()
+    aggfunc = aggdict[aggname]
+    stat = frame.groupby(index)[vector].agg(aggfunc).to_frame().reset_index()
+    keepers = [name for name in stat.columns if name not in index]
+    stat = stat[keepers]
+    stat.columns = [aggname]
+    table = pa.Table.from_pandas(stat)
+    return table
+
+
 def make_stat_aggregations(
     # input_args,
     table: pa.Table,
@@ -376,18 +398,21 @@ def make_stat_aggregations(
     aggfuncs (list): statistical aggregations to include
     logger  = init_logging(__name__ + ".table_to_bytes")st): what aggregations to process
     """
-    aggfuncs: list = ("mean", "min", "max", p10, p90)
+    aggdict = {"mean": "mean", "min": "min", "max": "max", "p10": p10, "p90": p90}
     # table, vector, table_index = input_args
     logger = init_logging(__name__ + ".make_stat_aggregations")
     logger.info("Will do stats on vector %s ", vector)
     logger.debug("Stats on %s", vector)
     logger.debug(table_index)
     logger.debug(table.column_names)
+    stats = pa.Table.from_arrays(pa.array([]))
     frame = table.to_pandas()
-    stats = pa.Table.from_pandas(frame.groupby(table_index)[vector].agg(aggfuncs))
-    keepers = [name for name in stats.column_names if name not in table_index]
+    stat_input = [(frame, table_index, vector, aggdict, aggname) for aggname in aggdict]
+    # do_stats(*stat_input[0])
+    with Pool() as pool:
+        stats = pool.starmap(do_stats, stat_input)
     logger.debug(stats)
-    return stats.select(keepers)
+    return stats
 
 
 def prepare_object_launch(meta: dict, table, name, operation):
@@ -513,7 +538,7 @@ def upload_table(
             logger.debug("Exception %s while uploading metadata", exp_type)
 
 
-async def upload_stats(
+def upload_stats(
     sumo: SumoClient,
     parent_id: str,
     table,
@@ -532,12 +557,13 @@ async def upload_stats(
         meta (dict): a metadata stub to be completed during upload
     """
     logger = init_logging(__name__ + ".upload_stats")
-    logger.debug(table.column_names)
+    # logger.debug(table.column_names)
     tasks = []
-    # print(table.column_names)
-    for operation in table.column_names:
-        logger.info(operation)
-        export_table = table.select([operation])
+    logger.debug(table.column_names)
+    for tab in table:
+        # logger.info(operation)
+        # export_table = table.select([operation])
+        operation = tab.column_names.pop()
         # upload_table(sumo, parent_id, export_table, name, meta, aggtype=operation)
         tasks.append(
             call_parallel(
@@ -546,7 +572,7 @@ async def upload_stats(
                 upload_table,
                 sumo,
                 parent_id,
-                export_table,
+                tab,
                 name,
                 meta,
                 operation,
@@ -606,22 +632,18 @@ async def extract_and_upload(
                 "collection",
             )
         )
-        # print(len(tasks))
         # p = Pool()
         # stats_dict_list = p.starmap(make_stat_aggregations, stat_params)
 
         count += 1
-        stat_output = []
-        # print(len(stat_input))
+        stat_output = make_stat_aggregations(export_frame, col_name, table_index)
         # exit()
-        with Pool() as pool:
-            stat_output = pool.starmap(make_stat_aggregations, stat_input)
         tasks.extend(
-            await upload_stats(
-                sumo, parent_id, stat_output.pop(), col_name, meta_stub, loop, executor
+            upload_stats(
+                sumo, parent_id, stat_output, col_name, meta_stub, loop, executor
             )
         )
-    # print(f"Tasks to run {len(tasks)}")
+    logger.debug("Tasks to run %s ", len(tasks))
     await asyncio.gather(*tasks)
     logger.info("%s files produced", count)
 
