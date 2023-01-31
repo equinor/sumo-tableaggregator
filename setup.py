@@ -30,6 +30,7 @@ setup(
     install_requires=[
         "PyYAML",
         "pandas",
+        "pyarrow",
         "sumo-wrapper-python",
         "setuptools",
         "azure-core",
