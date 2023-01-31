@@ -32,10 +32,8 @@ setup(
         "pandas",
         "sumo-wrapper-python",
         "setuptools",
-        "oneseismic",
         "azure-core",
         "deprecation",
-        "ert>=2.38.0-b5"
     ],
     python_requires=">=3.8",
     packages=find_packages("src"),
