@@ -362,7 +362,7 @@ def p90(array_like):
     return np.percentile(array_like, 10)
 
 
-def do_stats(frame, index, vector, aggdict, aggname):
+def do_stats(frame, index, col_name, aggdict, aggname):
     """Make single stat from table
 
     Args:
@@ -376,18 +376,17 @@ def do_stats(frame, index, vector, aggdict, aggname):
     """
     # frame = table.to_pandas()
     aggfunc = aggdict[aggname]
-    stat = frame.groupby(index)[vector].agg(aggfunc).to_frame().reset_index()
+    stat = frame.groupby(index)[col_name].agg(aggfunc).to_frame().reset_index()
     keepers = [name for name in stat.columns if name not in index]
     stat = stat[keepers]
     stat.columns = [aggname]
     table = pa.Table.from_pandas(stat)
-    return table
+    return (col_name, table)
 
 
 def make_stat_aggregations(
     # input_args,
-    table: pa.Table,
-    vector: str,
+    table_dict: dict,
     table_index: Union[list, str],
     # aggfuncs: list = ("mean", "min", "max", p10, p90),
 ):
@@ -398,20 +397,25 @@ def make_stat_aggregations(
     aggfuncs (list): statistical aggregations to include
     logger  = init_logging(__name__ + ".table_to_bytes")st): what aggregations to process
     """
-    aggdict = {"mean": "mean", "min": "min", "max": "max", "p10": p10, "p90": p90}
-    # table, vector, table_index = input_args
     logger = init_logging(__name__ + ".make_stat_aggregations")
-    logger.info("Will do stats on vector %s ", vector)
-    logger.debug("Stats on %s", vector)
-    logger.debug(table_index)
-    logger.debug(table.column_names)
-    stats = pa.Table.from_arrays(pa.array([]))
-    frame = table.to_pandas()
-    stat_input = [(frame, table_index, vector, aggdict, aggname) for aggname in aggdict]
+    aggdict = {"mean": "mean", "min": "min", "max": "max", "p10": p10, "p90": p90}
+    # print(table_dict)
+    stat_input = []
+    for col_name, table in table_dict.items():
+
+        # table, vector, table_index = input_args
+        logger.info("Will do stats on vector %s ", col_name)
+        logger.debug("Stats on %s", col_name)
+        logger.debug(table_index)
+        logger.debug(table.column_names)
+        stats = pa.Table.from_arrays(pa.array([]))
+        frame = table.to_pandas()
+        stat_input.extend(
+            [(frame, table_index, col_name, aggdict, aggname) for aggname in aggdict]
+        )
     # do_stats(*stat_input[0])
     with Pool() as pool:
         stats = pool.starmap(do_stats, stat_input)
-    logger.debug(stats)
     return stats
 
 
@@ -541,8 +545,7 @@ def upload_table(
 def upload_stats(
     sumo: SumoClient,
     parent_id: str,
-    tables,
-    name: str,
+    stat_input,
     meta: dict,
     loop,
     executor,
@@ -556,11 +559,16 @@ def upload_stats(
         name (str): name that will appear in sumo
         meta (dict): a metadata stub to be completed during upload
     """
+    print(len(stat_input))
     logger = init_logging(__name__ + ".upload_stats")
+    print(f"-->{stat_input}")
     # logger.debug(table.column_names)
     tasks = []
-    logger.debug("%s tables to upload", len(tables))
-    for table in tables:
+    logger.debug("%s tables to upload", len(stat_input))
+
+    for item in stat_input:
+
+        name, table = item
         # logger.info(operation)
         # export_table = table.select([operation])
         operation = table.column_names.pop()
@@ -607,8 +615,8 @@ async def extract_and_upload(
     unneccessaries = ["YEARS", "SECONDS", "ENSEMBLE", "REAL"]
     # task scheduler
     tasks = []
+    table_dict = {}
     for col_name in table.column_names:
-        stat_input = []
         if col_name in (neccessaries + unneccessaries):
             continue
         # if not col_name.startswith("FOP"):
@@ -617,7 +625,7 @@ async def extract_and_upload(
         keep_cols = neccessaries + [col_name]
         logger.debug(keep_cols)
         export_frame = table.select(keep_cols)
-        stat_input.append((export_frame, col_name, table_index))
+        table_dict[col_name] = export_frame
         # upload_table(sumo, parent_id, export_frame, col_name, meta_stub)
         tasks.append(
             call_parallel(
@@ -632,17 +640,22 @@ async def extract_and_upload(
                 "collection",
             )
         )
-        # p = Pool()
-        # stats_dict_list = p.starmap(make_stat_aggregations, stat_params)
-
         count += 1
-        stat_output = make_stat_aggregations(export_frame, col_name, table_index)
+        print(f"Doing the {col_name} dance")
         # exit()
-        tasks.extend(
-            upload_stats(
-                sumo, parent_id, stat_output, col_name, meta_stub, loop, executor
-            )
+    print(f"Submitting: {table_dict}")
+
+    tasks.extend(
+        upload_stats(
+            sumo,
+            parent_id,
+            make_stat_aggregations(table_dict, table_index),
+            meta_stub,
+            loop,
+            executor,
         )
+    )
+
     logger.debug("Tasks to run %s ", len(tasks))
     await asyncio.gather(*tasks)
     logger.info("%s files produced", count)
