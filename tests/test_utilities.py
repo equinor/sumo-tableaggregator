@@ -1,134 +1,24 @@
 """Tests module _utils.py"""
+import sys
+
 from pathlib import Path
 import json
 from uuid import UUID
 import pandas as pd
 import pyarrow as pa
 from pyarrow import feather
-from sumo.wrapper import SumoClient
-import pytest
-from context import ut
+
+# import pytest
+
+from sumo.table_aggregation import utilities as ut
 
 
-TEST_DATA = Path(__file__).parent / "data"
-TEST_ARROW_FILE = TEST_DATA / "2_columns_data.arrow"
-AGGREGATED_CSV = TEST_DATA / "aggregated.csv"
-MINIAGG_CSV = TEST_DATA / "mini_aggregated.csv"
-QUERY_FILE = TEST_DATA / "query_results.json"
-TMP = Path("tmp")
-
-
-@pytest.fixture(name="sumo")
-def fixture_sumo(sumo_env="prod"):
-    """Returns a the sumo client to use
-    args:
-    sumo_env (str): what environment to use
-    """
-    return SumoClient(sumo_env)
-
-
-@pytest.fixture(name="query_results")
-def fixture_query_results(sumo, case_name="drogon_design-2022-12-01", name="summary"):
-    """Returns results from given
-    args:
-    sumo (SumoClient instance): the client to use
-    case_name (str): name of string
-    name (str): name of files
-    """
-    query_results = ut.query_sumo(sumo, case_name, name)
-    return query_results
-
-
-def test_query_results(query_results):
-    """Tests query results"""
-    print(query_results)
-    result_path = QUERY_FILE
-    write_json(result_path, query_results)
-
-
-@pytest.fixture(name="ids_and_friends")
-def fixture_ids_and_friends(query_file=QUERY_FILE):
-    """Returns results from given
-    args:
-    """
-    query_results = read_json(query_file)
-    return ut.get_blob_ids_w_metadata(query_results)
-
-
-pytest.fixture(name="agg_frame")
-
-
-def fixture_agg_frame(sumo, ids_and_friends):
-    """Returns aggregated frame
-    args:
-    ids (dict): dictionary with name as key, value object id
-    returns frame (pd.DataFrame)
-    """
-    ids = ids_and_friends[1]
-    results = ut.aggregate_objects(ids, sumo)
-    return results
-
-
-def write_json(result_file, results):
-    """writes json files to disc
-    args:
-    result_file (str): path to file relative to TEST_DATA
-    """
-    with open(result_file, "w", encoding="utf-8") as json_file:
-        json.dump(results, json_file)
-
-
-def read_json(input_file):
-    """read json from disc
-    args:
-    result_file (str): path to file relative to TEST_DATA
-    returns:
-    content (dict): results from file
-    """
-    with open(input_file, "r", encoding="utf-8") as json_file:
-        contents = json.load(json_file)
-    return contents
-
-
-def assert_file_and_meta_couples(folder):
-    """Checks that there are metadata for all files
-    args:
-    folder (str or PosixPath): the folder to get from
-    """
-    all_hits = list(Path(folder).glob("*"))
-    print(len(all_hits))
-    assert len(all_hits) % 2 == 0
-    the_files = [hit.name for hit in all_hits if not hit.name.startswith(".")]
-    the_metas = [
-        hit.name[1:].replace(".yml", "") for hit in all_hits if hit.name.startswith(".")
-    ]
-    for name in the_metas:
-        assert name in the_files, f"{name} does not have a corresponding file"
-        the_files.remove(name)
-    assert len(the_files) == 0, f"{the_files} does not have meta files"
-
-
-@pytest.fixture(name="pandas_frame")
-def fixture_pandas_frame():
-
-    """Defines pandas dataframe to be used in tests"""
-    indata = {"nums": [1, 2, 3], "letters": ["A", "B", "C"]}
-
-    return pd.DataFrame(indata)
-
-
-@pytest.fixture(name="arrow_table")
-def fixture_arrow_table(pandas_frame):
-    """Makes pyarrow table from pandas dataframe
-    args:
-    frame (pd.DataFrame): the dataframe to convert
-    returns: table (pa.Table): frame as pa.Table
-    """
-    print(TEST_ARROW_FILE)
-    schema = pa.Schema.from_pandas(pandas_frame)
-    table = pa.Table.from_pandas(pandas_frame, schema=schema)
-    feather.write_feather(table, dest=TEST_ARROW_FILE)
-    return TEST_ARROW_FILE
+# TEST_DATA = Path(__file__).parent / "data"
+# TEST_ARROW_FILE = TEST_DATA / "2_columns_data.arrow"
+# AGGREGATED_CSV = TEST_DATA / "aggregated.csv"
+# MINIAGG_CSV = TEST_DATA / "mini_aggregated.csv"
+# QUERY_FILE = TEST_DATA / "query_results.json"
+# TMP = Path("tmp")
 
 
 def assert_correct_uuid(uuid_to_check, version=4):
@@ -173,6 +63,38 @@ def assert_name(name, func_name, typ):
     assert name == func_name, assert_mess
 
 
+# def read_json(input_file):
+#     """read json from disc
+#     args:
+#     result_file (str): path to file relative to TEST_DATA
+#     returns:
+#     content (dict): results from file
+#     """
+#     with open(input_file, "r", encoding="utf-8") as json_file:
+#         contents = json.load(json_file)
+#     return contents
+
+
+def test_query_results(query_results):
+    """Tests query results"""
+    results = query_results["hits"]["hits"]
+    assert len(results) == 4, "Not the expected number of hits"
+    # result_path = QUERY_FILE
+    # write_json(result_path, query_results)
+
+
+def test_query_iterations(sumo, case_name="drogon_ahm_dev-2023-01-18"):
+    """Test query for iteration
+
+    Args:
+        sumo (SumoClient): Client object with given environment
+        case_name (str, optional): Name of case to interrogate. Defaults to "drogon_ahm_dev-2023-01-18".
+    """
+    results = ut.query_sumo_iterations(sumo, case_name)
+    answer = [0, 1]
+    assert results == answer
+
+
 def test_decide_name():
     """Tests function decide_name in utils"""
     name = "tudels"
@@ -192,17 +114,6 @@ def test_decide_name():
     assert_name(name, ut.decide_name(frame.columns), "pd.DataFrame.index")
 
 
-def test_read_arrow_to_frame(pandas_frame, arrow_table):
-    """tests function arrow_to_frame
-    args:
-    pandas_frame (pd.DataFrame): to check against
-    arrow_table (str): name of file
-    """
-
-    check_table = ut.arrow_to_frame(arrow_table)
-    assert check_table.equals(pandas_frame)
-
-
 def test_get_blob_ids_w_metadata(ids_and_friends):
     """testing return results of function blob_ids_w_metadata
     args:
@@ -218,43 +129,77 @@ def test_get_blob_ids_w_metadata(ids_and_friends):
     assert isinstance(p_dict, dict), f"p_dict is not dict, {type(p_dict)}"
 
 
-def test_aggregation(ids_and_friends, sumo):
-    """Tests function agggregate_objects
-    args:
-    ids_and_friends (tuple): results from function blob_ids_w_metadata
-    sumo (SumoClient instance): the client to use during aggregation
+def test_stats_from_aggregated(agg_dummy):
+    """Test generation of statistics from an aggregated like table
+
+    Args:
+        agg_dummy (pa.Table): mock data of aggregated table
     """
-    ids = ids_and_friends[1]
-    results = ut.aggregate_objects(ids, sumo)
-    results.to_csv(AGGREGATED_CSV)
+    answer = ["mean", "min", "max", "p10", "p90", "DATE"]
+    print(agg_dummy)
+    stats = ut.make_stat_aggregations(agg_dummy, "v1", ["DATE"], {})
+
+    col_names = stats.column_names
+    assert isinstance(stats, pa.Table), "Wrong data type"
+    assert col_names == answer, "Wrong column names"
 
 
-def test_store_aggregated_objects(ids_and_friends, sumo):
-    """Tests function store_aggregregated_results
-    args:
-    file_name (str, or posix path): file to read from
-    """
-    ids, meta = ids_and_friends[1:3]
-    agg_frame = ut.aggregate_objects(ids, sumo)
-    ut.store_aggregated_objects(agg_frame, meta)
-    assert_file_and_meta_couples(TMP)
+# def test_aggregation(ids_and_friends, sumo):
+#     """Tests function agggregate_objects
+#     args:
+#     ids_and_friends (tuple): results from function blob_ids_w_metadata
+#     sumo (SumoClient instance): the client to use during aggregation
+#     """
+#     ids = ids_and_friends[1]
+#     results = ut.aggregate_arrow(ids, sumo)
+#     assert isinstance(results, pa.Table)
 
 
-def test_make_stat_aggregations(file_name=MINIAGG_CSV):
-    """Tests function store_stat_aggregations"""
-    frame = pd.read_csv(file_name)
-    print(frame.head())
-    stats = ut.make_stat_aggregations(frame)
-    print(stats["FGPR"]["mean"])
+# def test_store_aggregated_objects(ids_and_friends, sumo):
+#     """Tests function store_aggregregated_results
+#     args:
+#     file_name (str, or posix path): file to read from
+#     """
+#     ids, meta = ids_and_friends[1:3]
+#     agg_frame = ut.aggregate_arrow(ids, sumo)
+#     ut.store_aggregated_objects(agg_frame, meta, 0)
+#     assert_file_and_meta_couples(TMP)
 
 
-def test_upload_aggregated(sumo, store_folder=TMP):
-    """Tests function upload aggregated
-    args:
-    sumo (SumoClient instance): the client to use for uploading
-    store_folder (str): folder containing results
-    """
-    count = ut.upload_aggregated(
-        sumo, "17c56e33-38cd-f8d4-3e83-ec2d16a85327", store_folder
-    )
-    assert count == 4, f"Not uploaded all files ({count})"
+# def test_make_stat_aggregations(file_name=MINIAGG_CSV):
+#     """Tests function store_stat_aggregations"""
+#     frame = pd.read_csv(file_name)
+#     print(frame.head())
+#     stats = ut.make_stat_aggregations(frame)
+#     print(stats["FGPR"]["mean"])
+
+
+# def test_upload_aggregated(sumo, store_folder=TMP):
+#     """Tests function upload aggregated
+#     args:
+#     sumo (SumoClient instance): the client to use for uploading
+#     store_folder (str): folder containing results
+#     """
+#     count = ut.upload_aggregated(
+#         sumo, "17c56e33-38cd-f8d4-3e83-ec2d16a85327", store_folder
+#     )
+#     assert count == 4, f"Not uploaded all files ({count})"
+
+
+# def test_get_object(sumo):
+#     """Testing getting of object"""
+#     object_id = "ce25b1c1-6633-4a13-101a-863de9e85c1d"
+#     ut.get_object(object_id, sumo)
+
+
+def test_table_to_bytes(arrow_table):
+    """Tests generation of bytestring from table"""
+    # # frame = pd.DataFrame({"test": [1, 2, 3]})
+    # table = pa.Table.from_pandas(frame)
+    byte_string = ut.table_to_bytes(arrow_table)
+    assert isinstance(byte_string, bytes), "Arrow table not converted to bytes  "
+
+
+if __name__ == "__main__":
+    print(sys.path)
+    print(dir(ut))

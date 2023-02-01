@@ -1,4 +1,7 @@
 """Contains classes for aggregation of tables"""
+import time
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 from sumo.wrapper import SumoClient
 import sumo.table_aggregation.utilities as ut
@@ -8,7 +11,9 @@ class TableAggregator:
 
     """Class for aggregating tables"""
 
-    def __init__(self, case_name: str, name: str, token: str = None, **kwargs):
+    def __init__(
+        self, case_name: str, name: str, iteration: str, token: str = None, **kwargs
+    ):
         """Reads the data to be aggregated
         args
         case_name (str): name of sumo case
@@ -17,21 +22,40 @@ class TableAggregator:
         """
         sumo_env = kwargs.get("sumo_env", "prod")
         self._sumo = SumoClient(sumo_env, token)
-        self._tmp_folder = ut.TMP
-        self._aggregated = None
-        self._agg_stats = None
+        self._content = kwargs.get("content", "timeseries")
+        self._case_name = case_name
+        self._name = name
+        self.loop = asyncio.get_event_loop()
+        self._iteration = iteration
+        self._table_index = ["DATE"]
+        # try:
         (
             self._parent_id,
             self._object_ids,
             self._meta,
             self._real_ids,
             self._p_meta,
-        ) = ut.query_for_tables(self.sumo, case_name, name)
+        ) = ut.query_for_table(
+            self.sumo,
+            self._case_name,
+            self._name,
+            self._iteration,
+            content=self._content,
+        )
 
     @property
     def parent_id(self) -> str:
         """Returns _parent_id attribute"""
         return self._parent_id
+
+    @property
+    def table_index(self):
+        """Return attribute _table_index
+
+        Returns:
+            string: the table index
+        """
+        return self._table_index
 
     @property
     def sumo(self) -> SumoClient:
@@ -42,6 +66,11 @@ class TableAggregator:
     def object_ids(self) -> tuple:
         """Returns the _object_ids attribute"""
         return self._object_ids
+
+    @property
+    def iteration(self) -> str:
+        """Returns the _iteration attribute"""
+        return self._iteration
 
     @property
     def real_ids(self) -> list:
@@ -66,36 +95,41 @@ class TableAggregator:
 
         return self._aggregated
 
-    # @property
-    # def aggregated_stats(self) -> pd.DataFrame:
-    #     """Returns the _agg_stats attribute"""
-    #     return self._agg_stats
-    #
+    @aggregated.setter
+    def aggregated(self, aggregated):
+        """Sets the _aggregated attribute
+
+        Args:
+            aggregated (pa.Table): aggregated results
+        """
+        self._aggregated = aggregated
+
     def aggregate(self):
         """Aggregates objects over realizations on disk
         args:
         redo (bool): shall self._aggregated be made regardless
         """
-        self._aggregated = ut.aggregate_objects(self.object_ids, self.sumo)
-        self._aggregated.to_csv("Aggregated.csv", index=False)
-        ut.store_aggregated_objects(self.aggregated, self.base_meta)
-
-    def write_statistics(self):
-        """Makes statistics from aggregated dataframe"""
-        ut.make_stat_aggregations(self.aggregated, self.base_meta)
+        start_time = time.perf_counter()
+        self.aggregated = self.loop.run_until_complete(
+            ut.aggregate_arrow(self.object_ids, self.sumo, self.loop)
+        )
+        end_time = time.perf_counter()
+        print(f"Aggregated in {end_time - start_time} sec")
 
     def upload(self):
         """Uploads data to sumo"""
-        if self.aggregated is not None:
-            ut.store_aggregated_objects(self.aggregated, self.base_meta)
-        ut.upload_aggregated(self.sumo, self.parent_id, self._tmp_folder)
-
-    def __del__(self):
-        """Deletes tmp folder"""
-        try:
-            for single_file in self._tmp_folder.iterdir():
-                single_file.unlink()
-
-            self._tmp_folder.rmdir()
-        except FileNotFoundError:
-            print("No tmp folder exists, talk about failing fast :-)")
+        start_time = time.perf_counter()
+        executor = ThreadPoolExecutor()
+        self.loop.run_until_complete(
+            ut.extract_and_upload(
+                self.sumo,
+                self.parent_id,
+                self.aggregated,
+                self.table_index,
+                self.base_meta,
+                self.loop,
+                executor,
+            )
+        )
+        end_time = time.perf_counter()
+        print(f"Uploaded in {end_time - start_time: 3.1f} sec")
