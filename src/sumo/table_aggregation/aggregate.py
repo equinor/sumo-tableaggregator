@@ -43,9 +43,6 @@ class TableAggregator:
             content=self._content,
         )
 
-        # except Exception:
-        # print("Something went wrong, dunno what!")
-
     @property
     def parent_id(self) -> str:
         """Returns _parent_id attribute"""
