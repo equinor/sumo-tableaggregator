@@ -1,32 +1,24 @@
 """Testing of classe TableAggregator"""
 import logging
-from context import TableAggregator, Timer
+from sumo.table_aggregation import TableAggregator
+from sumo.table_aggregation.utilities import timethis
 
-logging.basicConfig(level="DEBUG", format="%(name)s %(levelname)s: %(message)s")
+logging.basicConfig(level="INFO", format="%(name)s %(levelname)s: %(message)s")
 
 LOGGER = logging.getLogger()
 
 
+@timethis("Whole process")
 def test_table_aggregator():
 
     """Tests TableAggregator"""
     test_case_name = "snorre_sumo-g2_29-2022-12-08"
     test_table_name = "summary"
-    timer = Timer()
-    # timer.start()
-    aggregator = TableAggregator(test_case_name, test_table_name, 0, sumo_env="dev")
-    # print(f"Fetched ids: {timer.stop()}")
-    # # print(aggregator.object_ids)
-    # timer.start()
-    # aggregator.aggregate()
-    # print(f"Aggregated: {timer.stop(restart=True)}")
-    # timer.start()
-    # # aggregator.write_statistics()
-    # print(f"Added statistics {timer.stop(restart=True)}")
-    timer.start()
+    aggregator = TableAggregator(
+        test_case_name, test_table_name, 0, content="timeseries", sumo_env="dev"
+    )
+    aggregator.aggregate()
     aggregator.upload()
-    print(f"Uploaded: {timer.stop()}")
-    print("Goody")
 
 
 if __name__ == "__main__":

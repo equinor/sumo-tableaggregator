@@ -1,5 +1,7 @@
 """Utils for table aggregation"""
+import os
 import sys
+import time
 import logging
 import warnings
 import hashlib
@@ -12,6 +14,28 @@ import pyarrow as pa
 from pyarrow import feather
 import pyarrow.parquet as pq
 from sumo.wrapper import SumoClient
+
+
+def timethis(label):
+    """Decorate functions to time them
+
+    Args:
+        label (str): name to shown when decorating
+    """
+
+    def decorator(func):
+        logger = init_logging(__name__ + ".timer")
+
+        def wrapper(*args, **kwargs):
+            start = time.perf_counter()
+            result = func(*args, **kwargs)
+            stop = time.perf_counter()
+            logger.info(f"--> Timex ({label}): {stop - start: 4.2f} s")
+            return result
+
+        return wrapper
+
+    return decorator
 
 
 def init_logging(name: str) -> logging.Logger:
@@ -127,6 +151,7 @@ def query_sumo(
         f"fmu.case.name:{case_name} AND data.name:{name} "
         + f"AND data.content:{content} AND fmu.iteration.id:{iteration} AND class:table"
     )
+    logger.info("This is the query %s \n", query)
     if tag:
         query += f" AND data.tagname:{tag}"
     logger.debug(" query: %s ", query)
@@ -395,6 +420,7 @@ def do_stats(frame, index, col_name, aggdict, aggname):
     return (col_name, table)
 
 
+@timethis("multiprocessing")
 def make_stat_aggregations(
     table_dict: dict,
     table_index: Union[list, str],
@@ -408,6 +434,7 @@ def make_stat_aggregations(
     logger  = init_logging(__name__ + ".table_to_bytes")st): what aggregations to process
     """
     logger = init_logging(__name__ + ".make_stat_aggregations")
+    logger.info("Running with %s cpus", os.cpu_count())
     aggdict = {"mean": "mean", "min": "min", "max": "max", "p10": p10, "p90": p90}
     stat_input = []
     for col_name, table in table_dict.items():
@@ -420,6 +447,7 @@ def make_stat_aggregations(
         stat_input.extend(
             [(frame, table_index, col_name, aggdict, aggname) for aggname in aggdict]
         )
+    logger.info("Submitting %s tasks to multprocessing", len(stat_input))
     with Pool() as pool:
         stats = pool.starmap(do_stats, stat_input)
     return stats
@@ -500,7 +528,7 @@ def upload_table(
             logger.debug("response meta: %s", rsp_nr)
         except Exception:
             exp_type, _, _ = sys.exc_info()
-            logger.debug("Exception %s while uploading metadata", exp_type)
+            logger.info("Exception %s while uploading metadata", exp_type)
 
     blob_url = response.json().get("blob_url")
     rsp_nr = "0"
@@ -511,7 +539,7 @@ def upload_table(
             logger.debug("Response blob %s", rsp_nr)
         except Exception:
             exp_type, _, _ = sys.exc_info()
-            logger.debug("Exception %s while uploading metadata", exp_type)
+            logger.info("Exception %s while uploading metadata", exp_type)
 
 
 def upload_stats(

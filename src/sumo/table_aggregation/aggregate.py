@@ -1,5 +1,4 @@
 """Contains classes for aggregation of tables"""
-import time
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
@@ -104,21 +103,19 @@ class TableAggregator:
         """
         self._aggregated = aggregated
 
+    @ut.timethis("aggregation")
     def aggregate(self):
         """Aggregates objects over realizations on disk
         args:
         redo (bool): shall self._aggregated be made regardless
         """
-        start_time = time.perf_counter()
         self.aggregated = self.loop.run_until_complete(
             ut.aggregate_arrow(self.object_ids, self.sumo, self.loop)
         )
-        end_time = time.perf_counter()
-        print(f"Aggregated in {end_time - start_time} sec")
 
+    @ut.timethis("upload")
     def upload(self):
         """Uploads data to sumo"""
-        start_time = time.perf_counter()
         executor = ThreadPoolExecutor()
         self.loop.run_until_complete(
             ut.extract_and_upload(
@@ -131,5 +128,3 @@ class TableAggregator:
                 executor,
             )
         )
-        end_time = time.perf_counter()
-        print(f"Uploaded in {end_time - start_time: 3.1f} sec")
