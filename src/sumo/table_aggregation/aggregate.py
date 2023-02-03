@@ -43,6 +43,24 @@ class TableAggregator:
         )
 
     @property
+    def name(self) -> str:
+        """Return _name attribute
+
+        Returns:
+            str: name of table
+        """
+        return self._name
+
+    @property
+    def case_name(self) -> str:
+        """Return _case_name attribute
+
+        Returns:
+            str: name of table
+        """
+        return self._case_name
+
+    @property
     def parent_id(self) -> str:
         """Returns _parent_id attribute"""
         return self._parent_id

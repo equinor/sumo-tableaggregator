@@ -16,7 +16,6 @@ from pyarrow import feather
 import pyarrow.parquet as pq
 from sumo.wrapper import SumoClient
 from sumo.wrapper._request_error import PermanentError
-from requests.exceptions import ConnectionError
 
 
 def timethis(label):
@@ -394,7 +393,7 @@ async def aggregate_arrow(
         aggregated.append(
             call_parallel(loop, None, reconstruct_table, object_id, real_nr, sumo)
         )
-    aggregated = pa.concat_tables(await asyncio.gather(*aggregated), promote=True)
+    aggregated = pa.concat_tables(await asyncio.gather(*aggregated))
     return aggregated
 
 
@@ -426,10 +425,12 @@ def do_stats(frame, index, col_name, aggdict, aggname):
     Returns:
         pa.Table: the static
     """
+    logger = init_logging(__name__ + ".do_stats")
     # frame = table.to_pandas()
     aggfunc = aggdict[aggname]
     stat = frame.groupby(index)[col_name].agg(aggfunc).to_frame().reset_index()
     keepers = [name for name in stat.columns if name not in index]
+    logger.info("Keeping these columns: %s for %s (%s)", keepers, col_name, aggname)
     stat = stat[keepers]
     stat.columns = [aggname]
     table = pa.Table.from_pandas(stat)
@@ -493,6 +494,7 @@ def prepare_object_launch(meta: dict, table, name, operation):
     meta["file"]["relative_path"] = unique_name
     logger.debug("Metadata %s", meta)
     logger.debug("Object %s ready for launch", unique_name)
+    logger.info("This is the unique name: %s", unique_name)
     return byte_string, meta
 
 
@@ -527,13 +529,16 @@ def upload_table(
         sumo (SumoClient): client with given environment
         parent_id (str): the parent id of the object
         table (pa.Table): the object to upload
+        name (str): name to fill the data.name tag
         meta (dict): meta stub to pass on to completion of metadata
         operation (str): operation type
 
     """
     logger = init_logging(__name__ + ".upload_table")
+    logger.info("Uploading %s-%s", name, operation)
     logger.debug("Uploading to parent with id %s", parent_id)
     byte_string, meta = prepare_object_launch(meta, table, name, operation)
+    logger.debug(meta["fmu"]["aggregation"])
     path = f"/objects('{parent_id}')"
     rsp_nr = "0"
     success_response = (200, 201)
@@ -544,7 +549,7 @@ def upload_table(
             logger.debug("response meta: %s", rsp_nr)
         except Exception:
             exp_type, _, _ = sys.exc_info()
-            logger.info("Exception %s while uploading metadata", exp_type)
+            logger.info("Exception %s while uploading metadata", str(exp_type))
 
     blob_url = response.json().get("blob_url")
     rsp_nr = "0"
@@ -555,7 +560,8 @@ def upload_table(
             logger.debug("Response blob %s", rsp_nr)
         except Exception:
             exp_type, _, _ = sys.exc_info()
-            logger.info("Exception %s while uploading metadata", exp_type)
+            logger.info("Exception %s while uploading metadata", str(exp_type))
+    logger.info("Response from blob client %s", rsp_nr)
 
 
 def upload_stats(
@@ -611,7 +617,6 @@ async def extract_and_upload(
     meta_stub: dict,
     loop,
     executor,
-    keep_grand_aggregation: bool = False,
 ):
     """Split pa.Table into seperate parts
 
@@ -627,16 +632,43 @@ async def extract_and_upload(
                                                 Defaults to False.
     """
     logger = init_logging(__name__ + ".extract_and_upload")
-
     count = 0
-    if keep_grand_aggregation:
-        upload_table(sumo, parent_id, table, "FullyAggregated", meta_stub, "collection")
-        count += 1
-    neccessaries = ["REAL"] + table_index
-    unneccessaries = ["YEARS", "SECONDS", "ENSEMBLE", "REAL"]
+    neccessaries = table_index + ["REAL"]
+    unneccessaries = ["YEARS", "SECONDS", "ENSEMBLE"]
     # task scheduler
     tasks = []
     table_dict = {}
+    # Queue table index
+    tasks.append(
+        call_parallel(
+            loop,
+            executor,
+            upload_table,
+            sumo,
+            parent_id,
+            table.select(neccessaries),
+            "table_index",
+            meta_stub,
+            "collection",
+        )
+    )
+    # Make and queue table index for stat aggregated objects
+    stat_index = pa.Table.from_pandas(
+        table.select(neccessaries).to_pandas().groupby(neccessaries).mean()
+    )
+    tasks.append(
+        call_parallel(
+            loop,
+            executor,
+            upload_table,
+            sumo,
+            parent_id,
+            stat_index,
+            "table_index",
+            meta_stub,
+            "mean",
+        )
+    )
     for col_name in table.column_names:
         if col_name in (neccessaries + unneccessaries):
             continue
@@ -672,13 +704,15 @@ async def extract_and_upload(
         )
     )
 
-    logger.debug("Tasks to run %s ", len(tasks))
+    logger.info("Tasks to run %s ", len(tasks))
     await asyncio.gather(*tasks)
     logger.info("%s objects produced", count * 6)
 
 
 def convert_metadata(
-    single_metadata: dict, real_ids: list, operation: str = "collection"
+    single_metadata: dict,
+    real_ids: list,
+    operation: str = "collection",
 ):
     """Makes metadata for the aggregated data from single metadata
     args:
@@ -702,6 +736,7 @@ def convert_metadata(
     except KeyError:
         logger.debug("No realization part to delete")
     # Adding specific aggregation ones
+    agg_metadata["fmu"]["table_parent"] = agg_metadata["data"]["name"]
     agg_metadata["fmu"]["aggregation"] = agg_metadata["fmu"].get("aggregation", {})
     agg_metadata["fmu"]["aggregation"]["operation"] = operation
     agg_metadata["fmu"]["aggregation"]["realization_ids"] = list(real_ids)
