@@ -10,10 +10,13 @@ from typing import Dict, Union
 import asyncio
 from multiprocessing import Pool
 import numpy as np
+import pandas as pd
 import pyarrow as pa
 from pyarrow import feather
 import pyarrow.parquet as pq
 from sumo.wrapper import SumoClient
+from sumo.wrapper._request_error import PermanentError
+from requests.exceptions import ConnectionError
 
 
 def timethis(label):
@@ -214,7 +217,12 @@ def get_object(object_id: str, sumo: SumoClient) -> pa.Table:
         pa.Table: the object as pyarrow
     """
     query = f"/objects('{object_id}')/blob"
-    table = arrow_to_table(sumo.get(query))
+    try:
+        table = arrow_to_table(sumo.get(query))
+    except (PermanentError, ConnectionError):
+        time.sleep(0.5)
+        table = get_object(object_id, sumo)
+
     return table
 
 
@@ -301,10 +309,12 @@ def split_results_and_meta(results: list) -> tuple:
     logger = init_logging(__name__ + ".split_result_and_meta")
     parent_id = get_parent_id(results[0])
     logger.debug("Parent id %s", parent_id)
+    col_set = set()
     meta = MetadataSet()
     blob_ids = {}
     for result in results:
         real_meta = result["_source"]
+        col_set.add(len(real_meta["data"]["spec"]["columns"]))
         try:
             real = real_meta["fmu"].pop("realization")
             name = real["id"]
@@ -312,6 +322,12 @@ def split_results_and_meta(results: list) -> tuple:
             logger.warning("No realization in result, already aggregation?")
         meta.add_realisation(name, real["parameters"])
         blob_ids[name] = result["_id"]
+    if len(col_set) != 1:
+        raise ValueError(
+            "Whooa! Something severly wrong: nr of columns varies\n"
+            "between individual realisations over your iteration\n"
+            "This must be fixed before table aggregation is possible"
+        )
     agg_meta = meta.base_meta(real_meta)
     split_tup = (parent_id, blob_ids, agg_meta, meta.real_ids, meta.parameter_dict)
     return split_tup
@@ -358,7 +374,7 @@ def reconstruct_table(object_id: str, real_nr: str, sumo: SumoClient) -> pa.Tabl
     logger.debug("Real %s", real_nr)
     real_table = get_object(object_id, sumo)
     rows = real_table.shape[0]
-    real_table = real_table.add_column(0, "REAL", pa.array([real_nr] * rows))
+    real_table = real_table.add_column(0, "REAL", pa.array([np.int16(real_nr)] * rows))
     logger.debug("Table created %s", real_table)
     return real_table
 
@@ -378,7 +394,7 @@ async def aggregate_arrow(
         aggregated.append(
             call_parallel(loop, None, reconstruct_table, object_id, real_nr, sumo)
         )
-    aggregated = pa.concat_tables(await asyncio.gather(*aggregated))
+    aggregated = pa.concat_tables(await asyncio.gather(*aggregated), promote=True)
     return aggregated
 
 
