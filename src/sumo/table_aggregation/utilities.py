@@ -8,7 +8,7 @@ import hashlib
 import uuid
 from typing import Dict, Union
 import asyncio
-from multiprocessing import Pool
+from multiprocessing import get_context
 import numpy as np
 import pandas as pd
 import pyarrow as pa
@@ -32,7 +32,7 @@ def timethis(label):
             start = time.perf_counter()
             result = func(*args, **kwargs)
             stop = time.perf_counter()
-            logger.info(f"--> Timex ({label}): {stop - start: 4.2f} s")
+            logger.info("--> Timex (%s): %s s", label, round(stop - start, 2))
             return result
 
         return wrapper
@@ -57,9 +57,12 @@ def md5sum(bytes_string: bytes) -> str:
     bytes_string (bytes): byte string
     returns (str): checksum
     """
+    logger = init_logging(__name__ + ".md5sum")
     hash_md5 = hashlib.md5()
     hash_md5.update(bytes_string)
     checksum = hash_md5.hexdigest()
+    logger.debug("Checksum %s", checksum)
+
     return checksum
 
 
@@ -110,7 +113,7 @@ def query_sumo_iterations(sumo: SumoClient, case_name: str) -> list:
         case_name (str): name of case
 
     Returns:
-        _type_: _description_
+        list: list with iteration numbers
     """
     select_id = "fmu.iteration.id"
     query = f"fmu.case.name:{case_name}"
@@ -156,7 +159,6 @@ def query_sumo(
     logger.info("This is the query %s \n", query)
     if tag:
         query += f" AND data.tagname:{tag}"
-    logger.debug(" query: %s ", query)
     query_results = sumo.get(path="/search", query=query, size=1000)
     return query_results
 
@@ -413,7 +415,7 @@ def p90(array_like):
     return np.percentile(array_like, 10)
 
 
-def do_stats(frame, index, col_name, aggdict, aggname):
+def do_stats(frame, index, col_name, aggfunc, aggname):
     """Make single stat from table
 
     Args:
@@ -427,14 +429,16 @@ def do_stats(frame, index, col_name, aggdict, aggname):
     """
     logger = init_logging(__name__ + ".do_stats")
     # frame = table.to_pandas()
-    aggfunc = aggdict[aggname]
+    logger.info("Columns prior to groupby: %s", frame.columns)
     stat = frame.groupby(index)[col_name].agg(aggfunc).to_frame().reset_index()
     keepers = [name for name in stat.columns if name not in index]
     logger.info("Keeping these columns: %s for %s (%s)", keepers, col_name, aggname)
     stat = stat[keepers]
     stat.columns = [aggname]
     table = pa.Table.from_pandas(stat)
-    return (col_name, table)
+    output = (col_name, table)
+    logger.info("%s %s", output[0], output[1].column_names)
+    return output
 
 
 @timethis("multiprocessing")
@@ -456,16 +460,36 @@ def make_stat_aggregations(
     stat_input = []
     for col_name, table in table_dict.items():
 
-        logger.info("Calculating statistics on vector %s ", col_name)
-        logger.debug("Table index %s", table_index)
-        logger.debug("Columns in table %s", table.column_names)
-        stats = pa.Table.from_arrays(pa.array([]))
-        frame = table.to_pandas()
-        stat_input.extend(
-            [(frame, table_index, col_name, aggdict, aggname) for aggname in aggdict]
+        logger.info("Calculating statistics on vector %s", col_name)
+        logger.info("Table index %s", table_index)
+        logger.debug(table.column("DATE"))
+        logger.info(
+            "Columns before conversion to pandas df %s (size %s)",
+            table.column_names,
+            table.shape,
         )
+        logger.info(table.schema)
+        frame = table.to_pandas(
+            ignore_metadata=True,
+        )
+        logger.info(
+            "Columns after conversion to pandas df %s (size %s)",
+            frame.columns,
+            frame.shape,
+        )
+        stat_input.extend(
+            [
+                (frame, table_index, col_name, aggdict[aggname], aggname)
+                for aggname in aggdict
+            ]
+        )
+    # for s_in in stat_input:
+    #     print(s_in)
+    # exit()
     logger.info("Submitting %s tasks to multprocessing", len(stat_input))
-    with Pool() as pool:
+
+    stats = pa.Table.from_arrays(pa.array([]))
+    with get_context("spawn").Pool() as pool:
         stats = pool.starmap(do_stats, stat_input)
     return stats
 
@@ -482,7 +506,6 @@ def prepare_object_launch(meta: dict, table, name, operation):
     byte_string = table_to_bytes(table)
     unique_name = f"{name}--{operation}--{meta['fmu']['iteration']['name']}"
     md5 = md5sum(byte_string)
-    logger.debug("Checksum %s", md5)
     meta["file"]["checksum_md5"] = md5
     meta["fmu"]["aggregation"]["id"] = uuid_from_string(md5)
     meta["file"]["checksum_md5"] = md5
@@ -493,8 +516,7 @@ def prepare_object_launch(meta: dict, table, name, operation):
     meta["display"]["name"] = name
     meta["file"]["relative_path"] = unique_name
     logger.debug("Metadata %s", meta)
-    logger.debug("Object %s ready for launch", unique_name)
-    logger.info("This is the unique name: %s", unique_name)
+    logger.info("Object %s ready for launch", unique_name)
     return byte_string, meta
 
 
@@ -507,11 +529,9 @@ def table_to_bytes(table: pa.Table):
     Returns:
         _type_: table as bytestring
     """
-    logger = init_logging(__name__ + ".table_to_bytes")
     sink = pa.BufferOutputStream()
     pq.write_table(table, sink)
     byte_string = sink.getvalue().to_pybytes()
-    logger.debug(type(byte_string))
     return byte_string
 
 
@@ -536,32 +556,33 @@ def upload_table(
     """
     logger = init_logging(__name__ + ".upload_table")
     logger.info("Uploading %s-%s", name, operation)
+    logger.info("Columns in table %s", table.column_names)
     logger.debug("Uploading to parent with id %s", parent_id)
     byte_string, meta = prepare_object_launch(meta, table, name, operation)
     logger.debug(meta["fmu"]["aggregation"])
     path = f"/objects('{parent_id}')"
-    rsp_nr = "0"
+    rsp_code = "0"
     success_response = (200, 201)
-    while rsp_nr not in success_response:
+    while rsp_code not in success_response:
         try:
             response = sumo.post(path=path, json=meta)
-            rsp_nr = response.status_code
-            logger.debug("response meta: %s", rsp_nr)
+            rsp_code = response.status_code
+            logger.info("response meta: %s", rsp_code)
         except Exception:
             exp_type, _, _ = sys.exc_info()
-            logger.info("Exception %s while uploading metadata", str(exp_type))
+            logger.debug("Exception %s while uploading metadata", str(exp_type))
 
     blob_url = response.json().get("blob_url")
-    rsp_nr = "0"
-    while rsp_nr not in success_response:
+    rsp_code = "0"
+    while rsp_code not in success_response:
         try:
             response = sumo.blob_client.upload_blob(blob=byte_string, url=blob_url)
-            rsp_nr = response.status_code
-            logger.debug("Response blob %s", rsp_nr)
+            rsp_code = response.status_code
+            logger.info("Response blob %s", rsp_code)
         except Exception:
             exp_type, _, _ = sys.exc_info()
             logger.info("Exception %s while uploading metadata", str(exp_type))
-    logger.info("Response from blob client %s", rsp_nr)
+    logger.info("Response from blob client %s", rsp_code)
 
 
 def upload_stats(
@@ -587,7 +608,7 @@ def upload_stats(
     """
     logger = init_logging(__name__ + ".upload_stats")
     tasks = []
-    logger.debug("%s tables to upload", len(stat_input))
+    logger.info("%s tables to upload", len(stat_input))
 
     for item in stat_input:
 
@@ -632,9 +653,13 @@ async def extract_and_upload(
                                                 Defaults to False.
     """
     logger = init_logging(__name__ + ".extract_and_upload")
+    logger.info(
+        "Opening the show with a table consisting of columns %s", table.column_names
+    )
     count = 0
     neccessaries = table_index + ["REAL"]
     unneccessaries = ["YEARS", "SECONDS", "ENSEMBLE"]
+    logger.info("This is the index to keep %s", neccessaries)
     # task scheduler
     tasks = []
     table_dict = {}
@@ -654,7 +679,7 @@ async def extract_and_upload(
     )
     # Make and queue table index for stat aggregated objects
     stat_index = pa.Table.from_pandas(
-        table.select(neccessaries).to_pandas().groupby(neccessaries).mean()
+        table.select(neccessaries).to_pandas().groupby(table_index).mean()
     )
     tasks.append(
         call_parallel(
@@ -669,12 +694,12 @@ async def extract_and_upload(
             "mean",
         )
     )
-    for col_name in table.column_names:
+    for col_name in ["FOPT"]:  # table.column_names:
         if col_name in (neccessaries + unneccessaries):
             continue
-        logger.debug("Working with %s", col_name)
-        keep_cols = neccessaries + [col_name]
-        logger.debug("Columns to pass through %s", keep_cols)
+        logger.info("Preparing %s", col_name)
+        keep_cols = table_index + [col_name]
+        logger.info("Columns to pass through %s", keep_cols)
         export_frame = table.select(keep_cols)
         table_dict[col_name] = export_frame
         tasks.append(
@@ -684,7 +709,7 @@ async def extract_and_upload(
                 upload_table,
                 sumo,
                 parent_id,
-                export_frame,
+                table.select([col_name]),
                 col_name,
                 meta_stub,
                 "collection",
