@@ -31,7 +31,7 @@ def test_table_aggregator(table_aggregator):
 
 def test_results(aggregator):
     """Tests the results"""
-    time.sleep(5)
+
     # exit()
     result_query = aggregator.sumo.get(
         "/search",
@@ -39,7 +39,9 @@ def test_results(aggregator):
         size=100,
     )
     hits = result_query["hits"]["hits"]
+    correct_nr = 20
     print(f"Found  {len(hits)} aggregations")
+    assert len(hits) == 20
     for result in hits:
         name = result["_source"]["data"]["name"]
         operation = result["_source"]["fmu"]["aggregation"]["operation"]

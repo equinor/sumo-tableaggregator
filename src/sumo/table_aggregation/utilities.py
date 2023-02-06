@@ -10,13 +10,13 @@ from typing import Dict, Union
 import asyncio
 from multiprocessing import get_context
 import numpy as np
+from copy import deepcopy
 import pandas as pd
 import pyarrow as pa
 from pyarrow import feather
 import pyarrow.parquet as pq
 from sumo.wrapper import SumoClient
 from sumo.wrapper._request_error import PermanentError
-import copy
 
 
 def timethis(label):
@@ -400,7 +400,7 @@ async def aggregate_arrow(
     return aggregated
 
 
-def p10(array_like: np.array) -> np.array:
+def p10(array_like: Union[np.array, pd.DataFrame]) -> np.array:
     """Returns p10 of array like
     args:
     array_like (array like): numpy array or pd.Series pd.DataFrame
@@ -408,7 +408,7 @@ def p10(array_like: np.array) -> np.array:
     return np.percentile(array_like, 90)
 
 
-def p90(array_like):
+def p90(array_like: Union[np.array, pd.DataFrame]) -> np.array:
     """Returns p90 of array like
     args:
     array_like (array like): numpy array or pd.Series pd.DataFrame
@@ -416,7 +416,7 @@ def p90(array_like):
     return np.percentile(array_like, 10)
 
 
-def do_stats(frame, index, col_name, aggfunc, aggname, up_nr, m_nr):
+def do_stats(frame, index, col_name, aggfunc, aggname):
     """Make single stat from table
 
     Args:
@@ -430,13 +430,11 @@ def do_stats(frame, index, col_name, aggfunc, aggname, up_nr, m_nr):
     """
     logger = init_logging(__name__ + ".do_stats")
     # frame = table.to_pandas()
-    logger.info("Columns prior to groupby: %s", frame.columns)
+    logger.debug("Columns prior to groupby: %s", frame.columns)
     stat = frame.groupby(index)[col_name].agg(aggfunc).to_frame().reset_index()
     keepers = [name for name in stat.columns if name not in index]
-    logger.info(
-        "%s M: %s: Keeping these columns: %s for %s (%s)",
-        up_nr,
-        m_nr,
+    logger.debug(
+        "Keeping these columns: %s for %s (%s)",
         keepers,
         col_name,
         aggname,
@@ -445,7 +443,7 @@ def do_stats(frame, index, col_name, aggfunc, aggname, up_nr, m_nr):
     stat.columns = [aggname]
     table = pa.Table.from_pandas(stat)
     output = (col_name, table)
-    logger.info("%s M: %s: %s %s", up_nr, m_nr, output[0], output[1].column_names)
+    logger.debug("%s %s", output[0], output[1].column_names)
     return output
 
 
@@ -462,7 +460,6 @@ class adder:
 def make_stat_aggregations(
     table_dict: dict,
     table_index: Union[list, str],
-    up_nr
     # aggfuncs: list = ("mean", "min", "max", p10, p90),
 ):
     """Make statistical aggregations from pyarrow dataframe
@@ -479,34 +476,28 @@ def make_stat_aggregations(
     stat_input = []
     for col_name, table in table_dict.items():
 
-        logger.info("Calculating statistics on vector %s", col_name)
-        logger.info("Table index %s", table_index)
+        logger.debug("Calculating statistics on vector %s", col_name)
+        logger.debug("Table index %s", table_index)
         logger.debug(table.column("DATE"))
-        logger.info(
+        logger.debug(
             "Columns before conversion to pandas df %s (size %s)",
             table.column_names,
             table.shape,
         )
-        logger.info(table.schema)
-        frame = table.to_pandas(
-            ignore_metadata=True,
+        logger.debug(table.schema)
+        frame = deepcopy(
+            table.to_pandas(
+                ignore_metadata=True,
+            )
         )
-        logger.info(
+        logger.debug(
             "Columns after conversion to pandas df %s (size %s)",
             frame.columns,
             frame.shape,
         )
         stat_input.extend(
             [
-                (
-                    frame,
-                    table_index,
-                    col_name,
-                    aggdict[aggname],
-                    aggname,
-                    up_nr,
-                    mult_nr.add(),
-                )
+                (frame, table_index, col_name, aggdict[aggname], aggname)
                 for aggname in aggdict
             ]
         )
@@ -521,7 +512,7 @@ def make_stat_aggregations(
     return stats
 
 
-def prepare_object_launch(meta: dict, table, name, operation, up_nr):
+def prepare_object_launch(meta: dict, table, name, operation):
     """Complete metadata for object
     args:
     frame (pd.DataFrame): the data to write
@@ -533,18 +524,19 @@ def prepare_object_launch(meta: dict, table, name, operation, up_nr):
     byte_string = table_to_bytes(table)
     unique_name = f"{name}--{operation}--{meta['fmu']['iteration']['name']}"
     md5 = md5sum(byte_string)
-    meta["file"]["checksum_md5"] = md5
-    meta["fmu"]["aggregation"]["id"] = uuid_from_string(md5)
-    meta["file"]["checksum_md5"] = md5
-    meta["fmu"]["aggregation"]["id"] = uuid_from_string(md5)
-    meta["fmu"]["aggregation"]["operation"] = operation
-    meta["data"]["spec"]["columns"] = table.column_names
-    meta["data"]["name"] = name
-    meta["display"]["name"] = name
-    meta["file"]["relative_path"] = unique_name
+    full_meta = deepcopy(meta)
+    full_meta["file"]["checksum_md5"] = md5
+    full_meta["fmu"]["aggregation"]["id"] = uuid_from_string(md5)
+    full_meta["file"]["checksum_md5"] = md5
+    full_meta["fmu"]["aggregation"]["id"] = uuid_from_string(md5)
+    full_meta["fmu"]["aggregation"]["operation"] = operation
+    full_meta["data"]["spec"]["columns"] = table.column_names
+    full_meta["data"]["name"] = name
+    full_meta["display"]["name"] = name
+    full_meta["file"]["relative_path"] = unique_name
     logger.debug("Metadata %s", meta)
-    logger.info("%s: Object %s ready for launch", up_nr, unique_name)
-    return byte_string, meta
+    logger.debug("Object %s ready for launch", unique_name)
+    return byte_string, full_meta
 
 
 def table_to_bytes(table: pa.Table):
@@ -568,13 +560,7 @@ async def call_parallel(loop, executor, func, *args):
 
 
 def upload_table(
-    sumo: SumoClient,
-    parent_id: str,
-    table: pa.Table,
-    name: str,
-    meta: dict,
-    operation,
-    up_nr,
+    sumo: SumoClient, parent_id: str, table: pa.Table, name: str, meta: dict, operation
 ):
     """Upload single table
 
@@ -588,11 +574,13 @@ def upload_table(
 
     """
     logger = init_logging(__name__ + ".upload_table")
-    logger.info("%s: Uploading %s-%s", up_nr, name, operation)
-    logger.info("%s: Columns in table %s", up_nr, table.column_names)
+    logger.debug("Uploading %s-%s", name, operation)
+    logger.debug("Columns in table %s", table.column_names)
     logger.debug("Uploading to parent with id %s", parent_id)
-    byte_string, meta = prepare_object_launch(meta, table, name, operation, up_nr)
-    logger.debug(meta["fmu"]["aggregation"])
+    byte_string, meta = prepare_object_launch(meta, table, name, operation)
+    logger.debug("id of table %s", id(table))
+    logger.debug("operation from meta %s", meta["fmu"]["aggregation"])
+    logger.debug("cols from meta %s", meta["data"]["spec"]["columns"])
     path = f"/objects('{parent_id}')"
     rsp_code = "0"
     success_response = (200, 201)
@@ -600,7 +588,7 @@ def upload_table(
         try:
             response = sumo.post(path=path, json=meta)
             rsp_code = response.status_code
-            logger.info("%s response meta: %s", up_nr, rsp_code)
+            logger.debug("response meta: %s", rsp_code)
         except Exception:
             exp_type, _, _ = sys.exc_info()
             logger.debug("Exception %s while uploading metadata", str(exp_type))
@@ -611,23 +599,14 @@ def upload_table(
         try:
             response = sumo.blob_client.upload_blob(blob=byte_string, url=blob_url)
             rsp_code = response.status_code
-            logger.info("%s Response blob %s", up_nr, rsp_code)
+            logger.debug("Response blob %s", rsp_code)
         except Exception:
             exp_type, _, _ = sys.exc_info()
-            logger.info(
-                "%s Exception %s while uploading metadata", up_nr, str(exp_type)
-            )
-    # logger.info("%s Response from blob client %s", up_nr, rsp_code)
+            logger.debug("Exception %s while uploading metadata", str(exp_type))
 
 
 def upload_stats(
-    sumo: SumoClient,
-    parent_id: str,
-    stat_input: list,
-    meta: dict,
-    loop,
-    executor,
-    up_nr,
+    sumo: SumoClient, parent_id: str, stat_input: list, meta: dict, loop, executor
 ):
     """Generate set of coroutine tasks for uploads
 
@@ -661,10 +640,8 @@ def upload_stats(
                 name,
                 meta,
                 operation,
-                up_nr,
             )
         )
-        up_nr += 1
     return tasks
 
 
@@ -691,7 +668,7 @@ async def extract_and_upload(
                                                 Defaults to False.
     """
     logger = init_logging(__name__ + ".extract_and_upload")
-    logger.info(
+    logger.debug(
         "Opening the show with a table consisting of columns %s", table.column_names
     )
     count = 0
@@ -701,7 +678,6 @@ async def extract_and_upload(
     # task scheduler
     tasks = []
     table_dict = {}
-    up_nr = 0
     # Queue table index
     tasks.append(
         call_parallel(
@@ -714,14 +690,12 @@ async def extract_and_upload(
             "table_index",
             meta_stub,
             "collection",
-            up_nr,
         )
     )
     # Make and queue table index for stat aggregated objects
     stat_index = pa.Table.from_pandas(
         table.select(table_index).to_pandas().groupby(table_index).mean()
     )
-    up_nr += 1
     tasks.append(
         call_parallel(
             loop,
@@ -733,18 +707,16 @@ async def extract_and_upload(
             "table_index",
             meta_stub,
             "mean",
-            up_nr,
         )
     )
-    for col_name in ["FOPT"]:  # table.column_names:
+    for col_name in table.column_names:
         if col_name in (neccessaries + unneccessaries):
             continue
-        logger.info("Preparing %s", col_name)
+        logger.debug("Preparing %s", col_name)
         keep_cols = table_index + [col_name]
-        logger.info("Columns to pass through %s", keep_cols)
-        export_frame = copy.deepcopy(table.select(keep_cols))
+        logger.debug("Columns to pass through %s", keep_cols)
+        export_frame = table.select(keep_cols)
         table_dict[col_name] = export_frame
-        up_nr += 1
         tasks.append(
             call_parallel(
                 loop,
@@ -752,11 +724,10 @@ async def extract_and_upload(
                 upload_table,
                 sumo,
                 parent_id,
-                copy.deepcopy(table.select([col_name])),
+                table.select([col_name]),
                 col_name,
                 meta_stub,
                 "collection",
-                up_nr,
             )
         )
         count += 1
@@ -766,17 +737,16 @@ async def extract_and_upload(
         upload_stats(
             sumo,
             parent_id,
-            make_stat_aggregations(table_dict, table_index, up_nr),
+            make_stat_aggregations(table_dict, table_index),
             meta_stub,
             loop,
             executor,
-            up_nr,
         )
     )
 
     logger.info("Tasks to run %s ", len(tasks))
     await asyncio.gather(*tasks)
-    logger.info("%s objects produced", count * 6)
+    logger.info("%s objects produced", count * 6 + 2)
 
 
 def convert_metadata(
