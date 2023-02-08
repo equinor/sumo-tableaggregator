@@ -52,7 +52,7 @@ if __name__ == "__main__":
     args = parse_args()
     sumo = SumoClient(args.sumo_env)
     query = f"fmu.case.name:{args.case} AND class:table AND fmu.aggregation.operation:*"
-    objects_to_del = sumo.get(path="/search", query=query, size=1000)["hits"]["hits"]
+    objects_to_del = sumo.get(path="/search", query=query, size=10000)["hits"]["hits"]
     my_loop = asyncio.get_event_loop()
     my_loop.run_until_complete(killem_all(objects_to_del, my_loop))
     print("Done!")

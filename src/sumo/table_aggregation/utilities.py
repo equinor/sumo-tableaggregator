@@ -107,7 +107,7 @@ def query_for_sumo_id(sumo: SumoClient, case_name: str) -> str:
 
 
 def query_sumo_iterations(sumo: SumoClient, case_name: str) -> list:
-    """Qeury for iteration numbers
+    """Qeury for iteration names
 
     Args:
         sumo (SumoClient): initialized sumo client
@@ -116,7 +116,7 @@ def query_sumo_iterations(sumo: SumoClient, case_name: str) -> list:
     Returns:
         list: list with iteration numbers
     """
-    select_id = "fmu.iteration.id"
+    select_id = "fmu.iteration.name"
     query = f"fmu.case.name:{case_name}"
     results = sumo.get(
         path="/search",
@@ -155,7 +155,7 @@ def query_sumo(
     logger = init_logging(__name__ + ".query_sumo")
     query = (
         f"fmu.case.name:{case_name} AND data.name:{name} "
-        + f"AND data.content:{content} AND fmu.iteration.id:{iteration} AND class:table"
+        + f"AND data.content:{content} AND fmu.iteration.name:.'{iteration}' AND class:table"
     )
     logger.info("This is the query %s \n", query)
     if tag:
@@ -433,27 +433,18 @@ def do_stats(frame, index, col_name, aggfunc, aggname):
     logger.debug("Columns prior to groupby: %s", frame.columns)
     stat = frame.groupby(index)[col_name].agg(aggfunc).to_frame().reset_index()
     keepers = [name for name in stat.columns if name not in index]
-    logger.debug(
+    logger.info(
         "Keeping these columns: %s for %s (%s)",
         keepers,
         col_name,
         aggname,
     )
     stat = stat[keepers]
-    stat.columns = [aggname]
+    # stat.columns = [aggname]
     table = pa.Table.from_pandas(stat)
-    output = (col_name, table)
+    output = (aggname, table)
     logger.debug("%s %s", output[0], output[1].column_names)
     return output
-
-
-class adder:
-    def __init__(self, num):
-        self.nr = num
-
-    def add(self):
-        self.nr += 1
-        return self.nr
 
 
 @timethis("multiprocessing")
@@ -472,7 +463,6 @@ def make_stat_aggregations(
     logger = init_logging(__name__ + ".make_stat_aggregations")
     logger.info("Running with %s cpus", os.cpu_count())
     aggdict = {"mean": "mean", "min": "min", "max": "max", "p10": p10, "p90": p90}
-    mult_nr = adder(0)
     stat_input = []
     for col_name, table in table_dict.items():
 
@@ -535,7 +525,7 @@ def prepare_object_launch(meta: dict, table, name, operation):
     full_meta["display"]["name"] = name
     full_meta["file"]["relative_path"] = unique_name
     logger.debug("Metadata %s", meta)
-    logger.debug("Object %s ready for launch", unique_name)
+    logger.info("Object %s ready for launch", unique_name)
     return byte_string, full_meta
 
 
@@ -627,8 +617,8 @@ def upload_stats(
 
     for item in stat_input:
 
-        name, table = item
-        operation = table.column_names.pop()
+        operation, table = item
+        name = table.column_names.pop()
         tasks.append(
             call_parallel(
                 loop,
@@ -694,7 +684,12 @@ async def extract_and_upload(
     )
     # Make and queue table index for stat aggregated objects
     stat_index = pa.Table.from_pandas(
-        table.select(table_index).to_pandas().groupby(table_index).mean()
+        table.select(neccessaries)
+        .to_pandas()
+        .groupby(table_index)
+        .mean("REAL")
+        .reset_index()
+        .drop("REAL", axis=1)
     )
     tasks.append(
         call_parallel(
