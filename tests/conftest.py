@@ -1,15 +1,21 @@
 """Fixtures for tests"""
+import os
 import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pytest
+from fmu.sumo.uploader import CaseOnDisk, SumoConnection
 from sumo.wrapper import SumoClient
-
 from sumo.table_aggregation import utilities as ut
+from pathlib import Path
+from fmu.config.utilities import yaml_load
+from fmu.dataio import InitializeCase, ExportData
+import pyarrow as pa
+import pyarrow.feather as pf
 
 
-@pytest.fixture(name="sumo")
-def fixture_sumo(sumo_env="dev"):
+@pytest.fixture(name="sumo", scope="session")
+def fixture_sumo(sumo_env="prod"):
     """Return the sumo client to use
     args:
     sumo_env (str): name f sumo environment
@@ -17,21 +23,110 @@ def fixture_sumo(sumo_env="dev"):
     return SumoClient(sumo_env)
 
 
-@pytest.fixture(name="query_results")
-def fixture_query_results(
-    sumo, case_name="drogon_design_small-2023-01-18", name="summary"
-):
-    """Returns result for given case
+@pytest.fixture(name="sumo_conn", scope="session")
+def fixture_sumo_conn(sumo_env="prod"):
+    """Return the sumo client to use
+    args:
+    sumo_env (str): name f sumo environment
+    """
+    return SumoConnection(env=sumo_env)
+
+
+@pytest.fixture(name="case_metadata_path", scope="session")
+def fixture_case_meta():
+    """Return path to case metadata for dummy case
+
+    Returns:
+        str: path to case metadata
+    """
+    test_path = Path("data/testrun/")
+    global_vars = yaml_load(test_path / "global_variables.yml")
+    # If you ever have to remake fmu_case.yml
+    # case = InitializeCase(config=global_vars)
+    # path = case.export(
+    # rootfolder=test_path,
+    # casename="test-table-aggregation",
+    # caseuser="dbs",
+    # restart_from=None,
+    # description=None,
+    # force=True,
+    # )
+
+    # for file_path in [
+    # path.resolve() for path in test_path.glob("realization-*/iter-*")
+    # ]:
+    # print(file_path)
+    # os.chdir(file_path)
+    # exp = ExportData(
+    # tagname="eclipse",
+    # content="timeseries",
+    # config=global_vars,
+    # verbosity="WARNING",
+    # )
+    # internal_path = Path("share/results/tables")
+    # for arrow_file in internal_path.glob("*.arrow"):
+
+    # table = pa.Table.from_pandas(pf.read_feather(arrow_file))
+    # ind_path = exp.export(table, name="summary")
+    # print(ind_path)
+
+    path = "data/testrun/share/metadata/fmu_case.yml"
+    return path
+
+
+@pytest.fixture(name="case_name", scope="session")
+def fixture_name():
+    """Return case name
+
+    Returns:
+        str: name of test case in sumo
+    """
+    return "test-table-aggregation"
+
+
+@pytest.fixture(name="case_uuid", scope="session")
+def fixture_case(case_metadata_path, sumo_conn):
+    """Return case uuid
+
+    Args:
+        case_metadata_path (str): path to metadatafile
+        sumo_conn (SumoConnection): Connection to given sumo environment
+
+    Returns:
+        str: case uuid
+    """
+    case = CaseOnDisk(
+        case_metadata_path=case_metadata_path,
+        sumo_connection=sumo_conn,
+        verbosity="DEBUG",
+    )
+    # Register the case on Sumo
+    sumo_id = case.register()
+
+    case.add_files(
+        search_string="data/testrun/realization-*/iter-*/share/results/tables/*.arrow"
+    )
+    case.upload()
+    print("Case registered on Sumo with ID: %s", sumo_id)
+
+    return sumo_id
+
+
+@pytest.fixture(name="query_results", scope="session")
+def fixture_query_results(sumo, case_name, name="summary"):
+    """Return result for test run
     args:
     sumo (SumoClient instance): the client to use
     case_name (str): name of case
     name (str): name of table
     """
-    query_results = ut.query_sumo(sumo, case_name, name, 0, content="depth")
+    query_results = ut.query_sumo(
+        sumo, case_name, name, "iter-0", tag="eclipse", content="timeseries"
+    )
     return query_results
 
 
-@pytest.fixture(name="ids_and_friends")
+@pytest.fixture(name="ids_and_friends", scope="session")
 def fixture_ids_and_friends(query_results):
     """Returns results from given
     args:
@@ -39,66 +134,81 @@ def fixture_ids_and_friends(query_results):
     return ut.get_blob_ids_w_metadata(query_results)
 
 
-@pytest.fixture(name="agg_dummy")
-def fixture_agg_dummmy():
-    """Generate mock data for aggregated table
+@pytest.fixture(name="teardown", autouse=True, scope="session")
+def fixture_teardown(case_uuid, sumo):
+    """Remove case when all tests are run
 
-    Returns:
-        pa.Table: mock aggregated table
+    Args:
+    case_uuid (str): uuid of test case
+    sumo (SumoClient): Client to given sumo environment
     """
-    nr_rows = 6000
-    vectors = np.random.normal(0, 1, 2 * nr_rows).reshape(nr_rows, 2)
-    real = np.sort(np.random.choice([1, 2, 3], nr_rows, p=[0.33, 0.33, 0.34]))
-    date = np.tile(np.arange(nr_rows / 3), (1, 3)).reshape(
-        nr_rows,
-    )
-    print(vectors.shape)
-    print(real.shape)
-    print(date.shape)
-    frame = pd.DataFrame(
-        {
-            "v1": vectors[:, 0].flatten(),
-            "v2": vectors[:, 1].flatten(),
-            "REAL": real,
-            "DATE": date,
-        }
-    )
-    table = pa.Table.from_pandas(frame)
-    return table
+    yield
+    print("Killing object {case_uuid}!")
+    path = f"/objects('{case_uuid}')"
+
+    sumo.delete(path)
 
 
-@pytest.fixture(name="agg_frame")
-def fixture_agg_frame(sumo, ids_and_friends):
-    """Return aggregated frame
-    args:
-    ids (dict): dictionary with name as key, value object id
-    returns frame (pd.DataFrame)
-    """
-    ids = ids_and_friends[1]
-    results = ut.aggregate_arrow(ids, sumo)
-    return results
+# @pytest.fixture(name="agg_dummy")
+# def fixture_agg_dummmy():
+# """Generate mock data for aggregated table
+
+# Returns:
+# pa.Table: mock aggregated table
+# """
+# nr_rows = 6000
+# vectors = np.random.normal(0, 1, 2 * nr_rows).reshape(nr_rows, 2)
+# real = np.sort(np.random.choice([1, 2, 3], nr_rows, p=[0.33, 0.33, 0.34]))
+# date = np.tile(np.arange(nr_rows / 3), (1, 3)).reshape(
+# nr_rows,
+# )
+# print(vectors.shape)
+# print(real.shape)
+# print(date.shape)
+# frame = pd.DataFrame(
+# {
+# "v1": vectors[:, 0].flatten(),
+# "v2": vectors[:, 1].flatten(),
+# "REAL": real,
+# "DATE": date,
+# }
+# )
+# table = pa.Table.from_pandas(frame)
+# return table
 
 
-@pytest.fixture(name="pandas_frame")
-def fixture_pandas_frame():
+# @pytest.fixture(name="agg_frame")
+# def fixture_agg_frame(sumo, ids_and_friends):
+# """Return aggregated frame
+# args:
+# ids (dict): dictionary with name as key, value object id
+# returns frame (pd.DataFrame)
+# """
+# ids = ids_and_friends[1]
+# results = ut.aggregate_arrow(ids, sumo)
+# return results
 
-    """Define pandas dataframe to be used in tests"""
-    indata = {"nums": [1, 2, 3], "letters": ["A", "B", "C"]}
 
-    return pd.DataFrame(indata)
+# @pytest.fixture(name="pandas_frame")
+# def fixture_pandas_frame():
+
+# """Define pandas dataframe to be used in tests"""
+# indata = {"nums": [1, 2, 3], "letters": ["A", "B", "C"]}
+
+# return pd.DataFrame(indata)
 
 
-@pytest.fixture(name="arrow_table")
-def fixture_arrow_table(pandas_frame):
-    """Return pyarrow table from pandas dataframe
-    args:
-    frame (pd.DataFrame): the dataframe to convert
-    returns: table (pa.Table): frame as pa.Table
-    """
-    schema = pa.Schema.from_pandas(pandas_frame)
-    table = pa.Table.from_pandas(pandas_frame, schema=schema)
-    return table
+# @pytest.fixture(name="arrow_table")
+# def fixture_arrow_table(pandas_frame):
+# """Return pyarrow table from pandas dataframe
+# args:
+# frame (pd.DataFrame): the dataframe to convert
+# returns: table (pa.Table): frame as pa.Table
+# """
+# schema = pa.Schema.from_pandas(pandas_frame)
+# table = pa.Table.from_pandas(pandas_frame, schema=schema)
+# return table
 
 
 if __name__ == "__main__":
-    print(fixture_agg_dummmy())
+    print(fixture_case_meta())

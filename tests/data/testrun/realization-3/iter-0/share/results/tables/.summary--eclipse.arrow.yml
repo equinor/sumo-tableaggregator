@@ -1,0 +1,78 @@
+$schema: https://main-fmu-schemas-dev.radix.equinor.com/schemas/0.8.0/fmu_results.json
+version: 0.8.0
+source: fmu
+tracklog:
+- datetime: '2023-02-09T12:49:31.234242'
+  user:
+    id: dbs
+  event: created
+class: table
+fmu:
+  model:
+    name: My model
+  context:
+    stage: realization
+  case:
+    name: test-table-aggregation
+    uuid: 866add28-1233-40a8-a83b-cba958483cb7
+    user:
+      id: dbs
+  iteration:
+    id: 0
+    uuid: 6188ded9-80c1-0e28-b994-373797c0eefa
+    name: iter-0
+  realization:
+    id: 3
+    uuid: 3132154e-2cee-b788-2e43-a5ec3dc9fcfc
+    name: realization-3
+file:
+  relative_path: realization-3/iter-0/share/results/tables/summary--eclipse.arrow
+  absolute_path: /private/dbs/git/sumo-tableaggregator/tests/data/testrun/realization-3/iter-0/share/results/tables/summary--eclipse.arrow
+  checksum_md5: 9e512025a41392bdacaca7ba1a801545
+data:
+  name: summary
+  stratigraphic: false
+  content: timeseries
+  tagname: eclipse
+  format: arrow
+  layout: table
+  unit: ''
+  vertical_domain: depth
+  depth_reference: msl
+  spec:
+    columns:
+    - FOPP
+    - FOPR
+    - FOPT
+    - DATE
+    size: 20
+  table_index:
+  - DATE
+  undef_is_zero: false
+  is_prediction: true
+  is_observation: false
+display:
+  name: summary
+access:
+  asset:
+    name: Drogon
+  ssdl:
+    access_level: asset
+    rep_include: true
+masterdata:
+  smda:
+    country:
+    - identifier: Norway
+      uuid: ad214d85-8a1d-19da-e053-c918a4889309
+    discovery:
+    - short_identifier: DROGON
+      uuid: ad214d85-8a1d-19da-e053-c918a4889309
+    field:
+    - identifier: DROGON
+      uuid: 00000000-0000-0000-0000-000000000000
+    coordinate_system:
+      identifier: ST_WGS84_UTM37N_P32637
+      uuid: ad214d85-dac7-19da-e053-c918a4889309
+    stratigraphic_column:
+      identifier: DROGON_HAS_NO_STRATCOLUMN
+      uuid: 00000000-0000-0000-0000-000000000000

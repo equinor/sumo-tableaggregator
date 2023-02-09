@@ -116,17 +116,20 @@ def query_sumo_iterations(sumo: SumoClient, case_name: str) -> list:
     Returns:
         list: list with iteration numbers
     """
-    select_id = "fmu.iteration.name"
+    logger = init_logging(__name__ + ".query_sumo_iterations")
     query = f"fmu.case.name:{case_name}"
+    logger.info(query)
+    selector = "fmu.iteration.name"
+    bucket_name = selector + ".keyword"
     results = sumo.get(
         path="/search",
         query=query,
         size=1,
-        select=select_id,
-        buckets=select_id,
+        select=selector,
+        buckets=bucket_name,
     )
     iterations = [
-        bucket["key"] for bucket in results["aggregations"][select_id]["buckets"]
+        bucket["key"] for bucket in results["aggregations"][bucket_name]["buckets"]
     ]
     return iterations
 
@@ -155,7 +158,7 @@ def query_sumo(
     logger = init_logging(__name__ + ".query_sumo")
     query = (
         f"fmu.case.name:{case_name} AND data.name:{name} "
-        + f"AND data.content:{content} AND fmu.iteration.name:.'{iteration}' AND class:table"
+        + f"AND data.content:{content} AND fmu.iteration.name:'{iteration}' AND class:table"
     )
     logger.info("This is the query %s \n", query)
     if tag:
@@ -322,7 +325,12 @@ def split_results_and_meta(results: list) -> tuple:
             name = real["id"]
         except KeyError:
             logger.warning("No realization in result, already aggregation?")
-        meta.add_realisation(name, real["parameters"])
+        try:
+            meta.add_realisation(name, real["parameters"])
+        except KeyError:
+            meta.add_realisation(name, [])
+            logger.warning("There is no parameter key in meta")
+
         blob_ids[name] = result["_id"]
     if len(col_set) != 1:
         raise ValueError(

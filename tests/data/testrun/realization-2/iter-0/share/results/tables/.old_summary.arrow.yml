@@ -1,0 +1,192 @@
+$schema: https://main-fmu-schemas-dev.radix.equinor.com/schemas/0.8.0/fmu_results.json
+version: 0.8.0
+source: fmu
+tracklog:
+- datetime: '2022-12-01T08:45:50.214710'
+  user:
+    id: dbs
+  event: created
+class: table
+fmu:
+  model:
+    name: ff
+    revision: 21.x.0.dev
+  context:
+    stage: realization
+  workflow:
+    reference: eclipse
+  case:
+    name: drogon_design-2022-12-01
+    uuid: 4f0844c4-aa7c-41b5-8bc2-728cbf638e8e
+    user:
+      id: dbs
+  iteration:
+    id: 0
+    uuid: 0c1d48e8-1388-6f70-07f0-02682f9f33d7
+    name: iter-0
+  realization:
+    id: 2
+    uuid: 9130748c-3733-7c7e-6326-c543383bf934
+    name: realization-2
+    parameters:
+      SENSNAME: rms_seed
+      SENSCASE: p10_p90
+      RMS_SEED: 1002
+      HUM_MODEL_MODE: 0
+      GOC_NORTH_HORST: 1640
+      FWL_CENTRAL: 1677
+      FWL_NORTH_HORST: 1660
+      SIMGRID_MINPV: 100
+      KVKH_CHANNEL: 0.6
+      KVKH_CREVASSE: 0.3
+      KVKH_LS: 0.7
+      KVKH_US: 0.6
+      FAULT_SEAL_SCALING: 1
+      RELPERM_INT_GO: 0
+      RELPERM_INT_WO: 0
+      MULT_R5_VALYSAR_THERYS: 1
+      MULT_R5_THERYS_VOLON: 1
+      MULT_R5_THERYS_R2_ALL: 1
+      MULT_R5_THERYS_R6_ALL: 1
+      DCONV_ALTERNATIVE: 2
+      ISOTREND_ALT1W_VALYSAR: 0.5
+      ISOTREND_ALT1W_THERYS: 0.5
+      ISOTREND_ALT1W_VOLON: 0.5
+      FACIESMODEL_ALTERNATIVE: 1
+      FACIES_VALYSAR_SEISCOND: 1
+      FACIES_THERYS_ALT2: 1
+      PETROMODEL_ALTERNATIVE: 1
+      VALYSAR_PORO_CHANNEL: 0.27
+      VALYSAR_PORO_CREVASSE: 0.22
+      THERYS_PORO_US: 0.31
+      THERYS_PORO_LS: 0.23
+      VOLON_PORO_CHANNEL: 0.2
+      VALYSAR_PERMH_CHANNEL: 1000
+      VALYSAR_PERMH_CREVASSE: 100
+      THERYS_PERMH_US: 1200
+      THERYS_PERMH_LS: 40
+      VOLON_PERMH_CHANNEL: 1100
+      PERMREF_CHANNEL: 1050
+      PERMREF_CREAVASSE: 100
+      PERMREF_USHOREFACE: 1200
+      PERMREF_LSHOREFACE: 40
+      PERMREF_OFFSHORE: 2
+      PERMREF_FLOODPLAIN: 1
+      POROREF_CHANNEL: 0.24
+      POROREF_CREAVASSE: 0.22
+      POROREF_USHOREFACE: 0.31
+      POROREF_LSHOREFACE: 0.23
+      POROREF_OFFSHORE: 0.1
+      POROREF_FLOODPLAIN: 0.13
+      SWLHEIGHT: 350
+      VALYSAR_CHANNEL_AZIMUTH: 70
+      VALYSAR_CHANNEL_WIDTH: 700
+      VALYSAR_CHANNEL_VOLFRAC: 0.6
+      VOLON_FLOODPLAIN_AZIMUTH: 0
+      VOLON_FLOODPLAIN_VARIOGRAM_RANGE_PARALLEL: 800
+      VOLON_FLOODPLAIN_VARIOGRAM_RANGE_NORMAL: 200
+      VOLON_FLOODPLAIN_VOLFRAC: 0.3
+      MULT_R1_VALYSAR_THERYS: 1
+      MULT_R1_VALYSAR_VOLON: 1
+      MULT_R1_THERYS_VOLON: 1
+      MULT_R2_VALYSAR_THERYS: 1
+      MULT_R2_VALYSAR_VOLON: 1
+      MULT_R2_THERYS_VOLON: 1
+      MULT_R3_VALYSAR_THERYS: 1
+      MULT_R3_VALYSAR_VOLON: 1
+      MULT_R3_THERYS_VOLON: 1
+      MULT_R4_VALYSAR_THERYS: 1
+      MULT_R4_VALYSAR_VOLON: 1
+      MULT_R4_THERYS_VOLON: 1
+      MULT_R5_VALYSAR_VOLON: 1
+      MULT_R6_VALYSAR_THERYS: 1
+      MULT_R6_VALYSAR_VOLON: 1
+      MULT_R6_THERYS_VOLON: 1
+      MULT_R7_VALYSAR_THERYS: 1
+      MULT_R7_VALYSAR_VOLON: 1
+      MULT_R7_THERYS_VOLON: 1
+      facies_aps_valysar_APS_1_0_GF_GRF1_RESIDUAL_MAINRANGE: 2000
+      facies_aps_valysar_APS_1_0_GF_GRF1_RESIDUAL_PERPRANGE: 400
+      facies_aps_valysar_APS_1_0_GF_GRF1_RESIDUAL_VERTRANGE: 5
+      facies_aps_valysar_APS_1_0_GF_GRF1_RESIDUAL_AZIMUTHANGLE: 70
+      facies_aps_valysar_APS_1_0_GF_GRF2_RESIDUAL_MAINRANGE: 1000
+      facies_aps_valysar_APS_1_0_GF_GRF2_RESIDUAL_PERPRANGE: 1000
+      facies_aps_valysar_APS_1_0_GF_GRF2_RESIDUAL_VERTRANGE: 5
+      facies_aps_valysar_APS_1_0_GF_GRF2_RESIDUAL_AZIMUTHANGLE: 70
+      facies_aps_valysar_APS_1_0_GF_GRF3_RESIDUAL_MAINRANGE: 1000
+      facies_aps_valysar_APS_1_0_GF_GRF3_RESIDUAL_PERPRANGE: 1000
+      facies_aps_valysar_APS_1_0_GF_GRF3_RESIDUAL_VERTRANGE: 5
+      facies_aps_valysar_APS_1_0_GF_GRF3_RESIDUAL_AZIMUTHANGLE: 0
+      facies_aps_therys_v2_APS_1_0_GF_GRF1_RESIDUAL_MAINRANGE: 1000
+      facies_aps_therys_v2_APS_1_0_GF_GRF1_RESIDUAL_PERPRANGE: 6000
+      facies_aps_therys_v2_APS_1_0_GF_GRF1_RESIDUAL_VERTRANGE: 5
+      facies_aps_therys_v2_APS_1_0_GF_GRF1_TREND_AZIMUTH: 300
+      facies_aps_therys_v2_APS_1_0_GF_GRF1_TREND_STACKANGLE: 0.015
+      facies_aps_therys_v2_APS_1_0_GF_GRF2_RESIDUAL_MAINRANGE: 6000
+      facies_aps_therys_v2_APS_1_0_GF_GRF2_RESIDUAL_PERPRANGE: 1000
+      facies_aps_therys_v2_APS_1_0_GF_GRF2_RESIDUAL_VERTRANGE: 5
+      facies_aps_therys_v2_APS_1_0_GF_GRF2_RESIDUAL_AZIMUTHANGLE: 10
+      facies_aps_therys_v2_APS_1_0_GF_GRF3_RESIDUAL_MAINRANGE: 1500
+      facies_aps_therys_v2_APS_1_0_GF_GRF3_RESIDUAL_PERPRANGE: 1500
+      facies_aps_therys_v2_APS_1_0_GF_GRF3_RESIDUAL_VERTRANGE: 1
+      facies_aps_therys_v2_APS_1_0_GF_GRF3_RESIDUAL_AZIMUTHANGLE: 10
+      facies_aps_volon_APS_1_0_GF_GRF1_RESIDUAL_MAINRANGE: 900
+      facies_aps_volon_APS_1_0_GF_GRF1_RESIDUAL_PERPRANGE: 200
+      facies_aps_volon_APS_1_0_GF_GRF1_RESIDUAL_VERTRANGE: 5
+      facies_aps_volon_APS_1_0_GF_GRF1_RESIDUAL_AZIMUTHANGLE: 5
+      facies_aps_volon_APS_1_0_GF_GRF2_RESIDUAL_MAINRANGE: 1000
+      facies_aps_volon_APS_1_0_GF_GRF2_RESIDUAL_PERPRANGE: 1000
+      facies_aps_volon_APS_1_0_GF_GRF2_RESIDUAL_VERTRANGE: 5
+      facies_aps_volon_APS_1_0_GF_GRF2_RESIDUAL_AZIMUTHANGLE: 0
+      facies_aps_volon_APS_1_0_GF_GRF3_RESIDUAL_MAINRANGE: 800
+      facies_aps_volon_APS_1_0_GF_GRF3_RESIDUAL_PERPRANGE: 800
+      facies_aps_volon_APS_1_0_GF_GRF3_RESIDUAL_VERTRANGE: 1
+      facies_aps_volon_APS_1_0_GF_GRF3_RESIDUAL_AZIMUTHANGLE: 0
+file:
+  relative_path: realization-2/iter-0/share/results/tables/summary.arrow
+  absolute_path: /scratch/fmu/dbs/drogon_design-2022-12-01/realization-2/iter-0/share/results/tables/summary.arrow
+  checksum_md5: 0d3d4b481acee9d522b781c77a803b7b
+data:
+  name: summary
+  stratigraphic: false
+  content: depth
+  tagname: ''
+  format: arrow
+  layout: table
+  unit: ''
+  vertical_domain: depth
+  depth_reference: msl
+  spec:
+    columns:
+    - FOPP
+    - FOPR
+    - FOPT
+    - DATE
+    size: 976
+  is_prediction: true
+  is_observation: false
+display:
+  name: summary
+access:
+  asset:
+    name: Drogon
+  ssdl:
+    access_level: internal
+    rep_include: true
+masterdata:
+  smda:
+    country:
+    - identifier: Norway
+      uuid: ad214d85-8a1d-19da-e053-c918a4889309
+    discovery:
+    - short_identifier: DROGON
+      uuid: ad214d85-8a1d-19da-e053-c918a4889309
+    field:
+    - identifier: DROGON
+      uuid: 00000000-0000-0000-0000-000000000000
+    coordinate_system:
+      identifier: ST_WGS84_UTM37N_P32637
+      uuid: ad214d85-dac7-19da-e053-c918a4889309
+    stratigraphic_column:
+      identifier: DROGON_HAS_NO_STRATCOLUMN
+      uuid: 00000000-0000-0000-0000-000000000000
