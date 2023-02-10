@@ -161,7 +161,7 @@ def fixture_teardown(case_uuid, sumo):
     sumo (SumoClient): Client to given sumo environment
     """
     yield
-    print("Killing object {case_uuid}!")
+    print(f"Killing object {case_uuid}!")
     path = f"/objects('{case_uuid}')"
 
     sumo.delete(path)

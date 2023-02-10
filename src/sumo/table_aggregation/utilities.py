@@ -779,7 +779,6 @@ def convert_metadata(
     except KeyError:
         logger.debug("No realization part to delete")
     # Adding specific aggregation ones
-    agg_metadata["fmu"]["table_parent"] = agg_metadata["data"]["name"]
     agg_metadata["fmu"]["aggregation"] = agg_metadata["fmu"].get("aggregation", {})
     agg_metadata["fmu"]["aggregation"]["operation"] = operation
     agg_metadata["fmu"]["aggregation"]["realization_ids"] = list(real_ids)
