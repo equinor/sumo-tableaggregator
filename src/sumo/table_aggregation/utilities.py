@@ -9,8 +9,8 @@ import uuid
 from typing import Dict, Union
 import asyncio
 from multiprocessing import get_context
-import numpy as np
 from copy import deepcopy
+import numpy as np
 import pandas as pd
 import pyarrow as pa
 from pyarrow import feather
@@ -495,8 +495,8 @@ def make_stat_aggregations(
         )
         stat_input.extend(
             [
-                (frame, table_index, col_name, aggdict[aggname], aggname)
-                for aggname in aggdict
+                (frame, table_index, col_name, aggfunc, aggname)
+                for aggname, aggfunc in aggdict.items()
             ]
         )
     # for s_in in stat_input:

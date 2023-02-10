@@ -1,17 +1,17 @@
 """Fixtures for tests"""
-import os
-import numpy as np
-import pandas as pd
-import pyarrow as pa
+from time import sleep
+import asyncio
 import pytest
 from fmu.sumo.uploader import CaseOnDisk, SumoConnection
 from sumo.wrapper import SumoClient
 from sumo.table_aggregation import utilities as ut
-from pathlib import Path
-from fmu.config.utilities import yaml_load
-from fmu.dataio import InitializeCase, ExportData
-import pyarrow as pa
-import pyarrow.feather as pf
+
+# These need to be reactivate if you want to rerun making of metadata for case
+# import pyarrow as pa
+# from pathlib import Path
+# from fmu.config.utilities import yaml_load
+# from fmu.dataio import InitializeCase, ExportData
+# import pyarrow.feather as pf
 
 
 @pytest.fixture(name="sumo", scope="session")
@@ -39,8 +39,8 @@ def fixture_case_meta():
     Returns:
         str: path to case metadata
     """
-    test_path = Path("data/testrun/")
-    global_vars = yaml_load(test_path / "global_variables.yml")
+    # test_path = Path("data/testrun/")
+    # global_vars = yaml_load(test_path / "global_variables.yml")
     # If you ever have to remake fmu_case.yml
     # case = InitializeCase(config=global_vars)
     # path = case.export(
@@ -100,7 +100,7 @@ def fixture_case(case_metadata_path, sumo_conn):
         sumo_connection=sumo_conn,
         verbosity="DEBUG",
     )
-    # Register the case on Sumo
+    # Register the case in Sumo
     sumo_id = case.register()
 
     case.add_files(
@@ -109,6 +109,8 @@ def fixture_case(case_metadata_path, sumo_conn):
     case.upload()
     print("Case registered on Sumo with ID: %s", sumo_id)
 
+    # Prevent the tests from failing because upload is not done
+    sleep(2)
     return sumo_id
 
 
@@ -134,6 +136,22 @@ def fixture_ids_and_friends(query_results):
     return ut.get_blob_ids_w_metadata(query_results)
 
 
+@pytest.fixture(name="aggregated_table", scope="session")
+def fixture_aggregation(ids_and_friends, sumo):
+    """Return aggregated objects
+
+    Args:
+        ids_and_friends (dict): dictionary of results
+        sumo (SumoClient): Sumo client initialised to given env
+
+    Returns:
+        _type_: _description_
+    """
+    ids = ids_and_friends[1]
+    loop = asyncio.get_event_loop()
+    return loop.run_until_complete(ut.aggregate_arrow(ids, sumo, loop))
+
+
 @pytest.fixture(name="teardown", autouse=True, scope="session")
 def fixture_teardown(case_uuid, sumo):
     """Remove case when all tests are run
@@ -147,68 +165,3 @@ def fixture_teardown(case_uuid, sumo):
     path = f"/objects('{case_uuid}')"
 
     sumo.delete(path)
-
-
-# @pytest.fixture(name="agg_dummy")
-# def fixture_agg_dummmy():
-# """Generate mock data for aggregated table
-
-# Returns:
-# pa.Table: mock aggregated table
-# """
-# nr_rows = 6000
-# vectors = np.random.normal(0, 1, 2 * nr_rows).reshape(nr_rows, 2)
-# real = np.sort(np.random.choice([1, 2, 3], nr_rows, p=[0.33, 0.33, 0.34]))
-# date = np.tile(np.arange(nr_rows / 3), (1, 3)).reshape(
-# nr_rows,
-# )
-# print(vectors.shape)
-# print(real.shape)
-# print(date.shape)
-# frame = pd.DataFrame(
-# {
-# "v1": vectors[:, 0].flatten(),
-# "v2": vectors[:, 1].flatten(),
-# "REAL": real,
-# "DATE": date,
-# }
-# )
-# table = pa.Table.from_pandas(frame)
-# return table
-
-
-# @pytest.fixture(name="agg_frame")
-# def fixture_agg_frame(sumo, ids_and_friends):
-# """Return aggregated frame
-# args:
-# ids (dict): dictionary with name as key, value object id
-# returns frame (pd.DataFrame)
-# """
-# ids = ids_and_friends[1]
-# results = ut.aggregate_arrow(ids, sumo)
-# return results
-
-
-# @pytest.fixture(name="pandas_frame")
-# def fixture_pandas_frame():
-
-# """Define pandas dataframe to be used in tests"""
-# indata = {"nums": [1, 2, 3], "letters": ["A", "B", "C"]}
-
-# return pd.DataFrame(indata)
-
-
-# @pytest.fixture(name="arrow_table")
-# def fixture_arrow_table(pandas_frame):
-# """Return pyarrow table from pandas dataframe
-# args:
-# frame (pd.DataFrame): the dataframe to convert
-# returns: table (pa.Table): frame as pa.Table
-# """
-# schema = pa.Schema.from_pandas(pandas_frame)
-# table = pa.Table.from_pandas(pandas_frame, schema=schema)
-# return table
-
-
-if __name__ == "__main__":
-    print(fixture_case_meta())

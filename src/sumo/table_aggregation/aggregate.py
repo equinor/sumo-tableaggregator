@@ -13,8 +13,8 @@ class TableAggregator:
     def __init__(
         self, case_name: str, name: str, iteration: str, token: str = None, **kwargs
     ):
-        """Reads the data to be aggregated
-        args
+        """Read the data to be aggregated
+        args:
         case_name (str): name of sumo case
         name (str): name of tables to aggregate
         token (str): authentication token
@@ -62,7 +62,7 @@ class TableAggregator:
 
     @property
     def parent_id(self) -> str:
-        """Returns _parent_id attribute"""
+        """Return _parent_id attribute"""
         return self._parent_id
 
     @property
@@ -76,37 +76,37 @@ class TableAggregator:
 
     @property
     def sumo(self) -> SumoClient:
-        """returns the _sumo_attribute"""
+        """return the _sumo_attribute"""
         return self._sumo
 
     @property
     def object_ids(self) -> tuple:
-        """Returns the _object_ids attribute"""
+        """Return the _object_ids attribute"""
         return self._object_ids
 
     @property
     def iteration(self) -> str:
-        """Returns the _iteration attribute"""
+        """Return the _iteration attribute"""
         return self._iteration
 
     @property
     def real_ids(self) -> list:
-        """Returns _real_ids attribute"""
+        """Return _real_ids attribute"""
         return self._real_ids
 
     @property
     def parameters(self) -> dict:
-        """Returns the _p_meta attribute"""
+        """Return the _p_meta attribute"""
         return self._p_meta
 
     @property
     def base_meta(self) -> dict:
-        """Returns _meta attribute"""
+        """Return _meta attribute"""
         return self._meta
 
     @property
     def aggregated(self) -> pd.DataFrame:
-        """Returns the _aggregated attribute"""
+        """Return the _aggregated attribute"""
         if self._aggregated is None:
             self.aggregate()
 
@@ -114,7 +114,7 @@ class TableAggregator:
 
     @aggregated.setter
     def aggregated(self, aggregated):
-        """Sets the _aggregated attribute
+        """Set the _aggregated attribute
 
         Args:
             aggregated (pa.Table): aggregated results
@@ -123,17 +123,14 @@ class TableAggregator:
 
     @ut.timethis("aggregation")
     def aggregate(self):
-        """Aggregates objects over realizations on disk
-        args:
-        redo (bool): shall self._aggregated be made regardless
-        """
+        """Aggregate objects over tables per real stored in sumo"""
         self.aggregated = self.loop.run_until_complete(
             ut.aggregate_arrow(self.object_ids, self.sumo, self.loop)
         )
 
     @ut.timethis("upload")
     def upload(self):
-        """Uploads data to sumo"""
+        """Upload data to sumo"""
         executor = ThreadPoolExecutor()
         self.loop.run_until_complete(
             ut.extract_and_upload(

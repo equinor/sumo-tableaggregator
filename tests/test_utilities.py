@@ -1,11 +1,9 @@
 """Tests module _utils.py"""
-from pathlib import Path
 from uuid import UUID
-import pandas as pd
-import pyarrow as pa
-from pyarrow import feather
-from sumo.table_aggregation import utilities as ut
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
+import pyarrow as pa
+from sumo.table_aggregation import utilities as ut
 
 
 def assert_correct_uuid(uuid_to_check, version=4):
@@ -67,7 +65,7 @@ def test_query_iterations(sumo, case_name):
 
     Args:
         sumo (SumoClient): Client object with given environment
-        case_name (str, optional): Name of case to interrogate. Defaults to "drogon_ahm_dev-2023-01-18".
+        case_name (str, optional): Name of case to interrogate
     """
     print(case_name)
     results = ut.query_sumo_iterations(sumo, case_name)
@@ -92,66 +90,49 @@ def test_get_blob_ids_w_metadata(ids_and_friends):
     assert isinstance(p_dict, dict), f"parameter_dict is not dict, {type(p_dict)}"
 
 
-def test_aggregation(ids_and_friends, sumo):
+def test_aggregation(aggregated_table):
     """Tests function agggregate_objects
     args:
     ids_and_friends (tuple): results from function blob_ids_w_metadata
     sumo (SumoClient instance): the client to use during aggregation
     """
     correct_shape = (20, 5)
-    ids = ids_and_friends[1]
-    loop = asyncio.get_event_loop()
-    results = loop.run_until_complete(ut.aggregate_arrow(ids, sumo, loop))
-    table_shape = results.shape
-    assert isinstance(results, pa.Table), "Not a pyarrow table"
+
+    table_shape = aggregated_table.shape
+    assert isinstance(aggregated_table, pa.Table), "Not a pyarrow table"
     assert table_shape == correct_shape, "Wrong shape"
 
 
-# # def test_store_aggregated_objects(ids_and_friends, sumo):
-# #     """Tests function store_aggregregated_results
-# #     args:
-# #     file_name (str, or posix path): file to read from
-# #     """
-# #     ids, meta = ids_and_friends[1:3]
-# #     agg_frame = ut.aggregate_arrow(ids, sumo)
-# #     ut.store_aggregated_objects(agg_frame, meta, 0)
-# #     assert_file_and_meta_couples(TMP)
+def test_upload(ids_and_friends, case_name, aggregated_table, sumo):
+    """Upload data to sumo"""
+    executor = ThreadPoolExecutor()
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(
+        ut.extract_and_upload(
+            sumo,
+            ids_and_friends[0],
+            aggregated_table,
+            ["DATE"],
+            ids_and_friends[2],
+            loop,
+            executor,
+        )
+    )
+    result_query = sumo.get(
+        "/search",
+        query=f"fmu.case.name:{case_name} AND class:table AND fmu.aggregation:*",
+        size=100,
+    )
+    hits = result_query["hits"]["hits"]
+    correct_nr = 20
+    print(f"Found  {len(hits)} aggregations")
+    assert len(hits) == correct_nr
+    for result in hits:
+        meta = result["_source"]
+        name = meta["data"]["name"]
+        operation = meta["fmu"]["aggregation"]["operation"]
+        columns = meta["data"]["spec"]["columns"]
 
-
-# # def test_make_stat_aggregations(file_name=MINIAGG_CSV):
-# #     """Tests function store_stat_aggregations"""
-# #     frame = pd.read_csv(file_name)
-# #     print(frame.head())
-# #     stats = ut.make_stat_aggregations(frame)
-# #     print(stats["FGPR"]["mean"])
-
-
-# # def test_upload_aggregated(sumo, store_folder=TMP):
-# #     """Tests function upload aggregated
-# #     args:
-# #     sumo (SumoClient instance): the client to use for uploading
-# #     store_folder (str): folder containing results
-# #     """
-# #     count = ut.upload_aggregated(
-# #         sumo, "17c56e33-38cd-f8d4-3e83-ec2d16a85327", store_folder
-# #     )
-# #     assert count == 4, f"Not uploaded all files ({count})"
-
-
-# # def test_get_object(sumo):
-# #     """Testing getting of object"""
-# #     object_id = "ce25b1c1-6633-4a13-101a-863de9e85c1d"
-# #     ut.get_object(object_id, sumo)
-
-
-# def test_table_to_bytes(arrow_table):
-#     """Tests generation of bytestring from table"""
-#     # # frame = pd.DataFrame({"test": [1, 2, 3]})
-#     # table = pa.Table.from_pandas(frame)
-#     byte_string = ut.table_to_bytes(arrow_table)
-#     assert isinstance(byte_string, bytes), "Arrow table not converted to bytes  "
-
-
-# if __name__ == "__main__":
-#     print(sys.path)
-#     print(dir(ut))
+        table = ut.get_object(result["_id"], sumo)
+        print(f"{name}-{operation}: {table.column_names}")
+        print(columns)
