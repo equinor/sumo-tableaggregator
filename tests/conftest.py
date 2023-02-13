@@ -109,7 +109,7 @@ def fixture_case(case_metadata_path, sumo_conn):
     case.upload()
     print("Case registered on Sumo with ID: %s", sumo_id)
 
-    # Prevent the tests from failing because upload is not done
+    # Prevent the tests from failing because upload is not completed
     sleep(2)
     return sumo_id
 

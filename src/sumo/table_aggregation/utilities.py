@@ -520,19 +520,30 @@ def prepare_object_launch(meta: dict, table, name, operation):
     logger = init_logging(__name__ + ".complete_meta")
     logger.debug("Preparing with data source %s", table)
     byte_string = table_to_bytes(table)
-    unique_name = f"{name}--{operation}--{meta['fmu']['iteration']['name']}"
+    tag = meta["data"]["tagname"]
     md5 = md5sum(byte_string)
     full_meta = deepcopy(meta)
+    parent = full_meta["data"]["name"]
+    logger.info("Name prior to change: %s", parent)
+    unique_name = (
+        parent
+        + f"--{name}--{tag}--{operation}--"
+        + full_meta["fmu"]["iteration"]["name"]
+    )
     full_meta["file"]["checksum_md5"] = md5
     full_meta["fmu"]["aggregation"]["id"] = uuid_from_string(md5)
     full_meta["file"]["checksum_md5"] = md5
     full_meta["fmu"]["aggregation"]["id"] = uuid_from_string(md5)
     full_meta["fmu"]["aggregation"]["operation"] = operation
+    if full_meta["data"]["table_index"] == full_meta["data"]["spec"]["columns"]:
+        unique_name = "index--" + unique_name
     full_meta["data"]["spec"]["columns"] = table.column_names
-    full_meta["data"]["name"] = name
+    if operation == "collection":
+        full_meta["data"]["table_index"].append("REAL")
+    # full_meta["data"]["name"] = name
     full_meta["display"]["name"] = name
     full_meta["file"]["relative_path"] = unique_name
-    logger.debug("Metadata %s", meta)
+    logger.debug("Metadata %s", full_meta)
     logger.info("Object %s ready for launch", unique_name)
     return byte_string, full_meta
 

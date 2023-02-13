@@ -1,4 +1,5 @@
 """Tests module _utils.py"""
+from time import sleep
 from uuid import UUID
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
@@ -103,7 +104,12 @@ def test_aggregation(aggregated_table):
     assert table_shape == correct_shape, "Wrong shape"
 
 
-def test_upload(ids_and_friends, case_name, aggregated_table, sumo):
+def test_upload(
+    ids_and_friends,
+    case_name,
+    aggregated_table,
+    sumo,
+):
     """Upload data to sumo"""
     executor = ThreadPoolExecutor()
     loop = asyncio.get_event_loop()
@@ -118,6 +124,8 @@ def test_upload(ids_and_friends, case_name, aggregated_table, sumo):
             executor,
         )
     )
+    # Prevent tests from failing because upload is not done
+    sleep(5)
     result_query = sumo.get(
         "/search",
         query=f"fmu.case.name:{case_name} AND class:table AND fmu.aggregation:*",
@@ -126,13 +134,60 @@ def test_upload(ids_and_friends, case_name, aggregated_table, sumo):
     hits = result_query["hits"]["hits"]
     correct_nr = 20
     print(f"Found  {len(hits)} aggregations")
-    assert len(hits) == correct_nr
+    operations = ("collection", "mean", "min", "max", "p10", "p90")
+    valids = ["FOPP", "FOPT", "FOPR"]
+    all_names = [
+        f"summary--{name}--eclipse--{op}--iter-0"
+        for name in valids
+        for op in operations
+    ]
+    all_names.extend(
+        [
+            "summary--table_index--eclipse--mean--iter-0",
+            "summary--table_index--eclipse--collection--iter-0",
+        ]
+    )
+    unique_count = {name: 0 for name in all_names}
     for result in hits:
+        correct_len = 1
         meta = result["_source"]
         name = meta["data"]["name"]
+        print(f"data.name: {name}")
+        assert name == "summary", f"Name is not summary but {name}"
         operation = meta["fmu"]["aggregation"]["operation"]
+        print(f"fmu.aggregation.name: {operation}")
         columns = meta["data"]["spec"]["columns"]
+        print(f"data.spec.columns: {columns}")
+        print(f"file.relative_path: {meta['file']['relative_path']}")
+        index_names = meta["data"]["table_index"]
+        unique_count[meta["file"]["relative_path"]] = (
+            unique_count[meta["file"]["relative_path"]] + 1
+        )
+        if "DATE" in columns:
+            if operation == "collection":
+                correct_len = 2
+                comb_index = True
 
+        col_len = len(columns)
+        assert (
+            col_len == correct_len
+        ), f"Length of columns != 1 ({col_len}) and cols are {columns}"
+        if col_len == 1:
+            col_name = columns.pop()
+            if "DATE" not in index_names:
+                assert col_name in valids, f"Column name {col_name} is invalid"
+        assert operation in operations, f"Operation {operation} is invalid"
         table = ut.get_object(result["_id"], sumo)
         print(f"{name}-{operation}: {table.column_names}")
         print(columns)
+    missing = []
+    total_count = 0
+    for rel_path, count in unique_count.items():
+        if count == 0:
+            missing.append(rel_path)
+        else:
+            total_count += 1
+    miss_mess = "\n".join(missing)
+    assert (
+        len(missing) == 0
+    ), f"These paths are missing {miss_mess} (found {total_count})"
