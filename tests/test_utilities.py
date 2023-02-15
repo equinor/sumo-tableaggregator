@@ -132,7 +132,6 @@ def test_upload(
         size=100,
     )
     hits = result_query["hits"]["hits"]
-    correct_nr = 20
     print(f"Found  {len(hits)} aggregations")
     operations = ("collection", "mean", "min", "max", "p10", "p90")
     valids = ["FOPP", "FOPT", "FOPR"]
@@ -158,7 +157,9 @@ def test_upload(
         print(f"fmu.aggregation.name: {operation}")
         columns = meta["data"]["spec"]["columns"]
         print(f"data.spec.columns: {columns}")
-        print(f"file.relative_path: {meta['file']['relative_path']}")
+        rel_path = meta["file"]["relative_path"]
+        print(f"file.relative_path: {rel_path}")
+        unique_count[rel_path] += 1
         index_names = meta["data"]["table_index"]
         if "DATE" in columns:
             if operation == "collection":
@@ -175,7 +176,11 @@ def test_upload(
         assert operation in operations, f"Operation {operation} is invalid"
         table = ut.get_object(result["_id"], sumo)
         print(f"{name}-{operation}: {table.column_names}")
+        unique_count
+        print("---------")
         print(columns)
+        print("---------")
+
     missing = []
     total_count = 0
     for rel_path, count in unique_count.items():

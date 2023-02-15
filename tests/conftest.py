@@ -5,6 +5,7 @@ import pytest
 from fmu.sumo.uploader import CaseOnDisk, SumoConnection
 from sumo.wrapper import SumoClient
 from sumo.table_aggregation import utilities as ut
+from pathlib import Path
 
 # These need to be reactivate if you want to rerun making of metadata for case
 # import pyarrow as pa
@@ -12,6 +13,8 @@ from sumo.table_aggregation import utilities as ut
 # from fmu.config.utilities import yaml_load
 # from fmu.dataio import InitializeCase, ExportData
 # import pyarrow.feather as pf
+
+ROOTPATH = str(Path(__file__).parent.absolute())
 
 
 @pytest.fixture(name="sumo", scope="session")
@@ -70,7 +73,7 @@ def fixture_case_meta():
     # ind_path = exp.export(table, name="summary")
     # print(ind_path)
 
-    path = "data/testrun/share/metadata/fmu_case.yml"
+    path = ROOTPATH + "/data/testrun/share/metadata/fmu_case.yml"
     return path
 
 
@@ -104,7 +107,8 @@ def fixture_case(case_metadata_path, sumo_conn):
     sumo_id = case.register()
 
     case.add_files(
-        search_string="data/testrun/realization-*/iter-*/share/results/tables/*.arrow"
+        search_string=ROOTPATH
+        + "/data/testrun/realization-*/iter-*/share/results/tables/*.arrow"
     )
     case.upload()
     print("Case registered on Sumo with ID: %s", sumo_id)
