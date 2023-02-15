@@ -160,13 +160,9 @@ def test_upload(
         print(f"data.spec.columns: {columns}")
         print(f"file.relative_path: {meta['file']['relative_path']}")
         index_names = meta["data"]["table_index"]
-        unique_count[meta["file"]["relative_path"]] = (
-            unique_count[meta["file"]["relative_path"]] + 1
-        )
         if "DATE" in columns:
             if operation == "collection":
                 correct_len = 2
-                comb_index = True
 
         col_len = len(columns)
         assert (
