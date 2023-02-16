@@ -67,21 +67,29 @@ def md5sum(bytes_string: bytes) -> str:
     return checksum
 
 
-def is_uuid(uuid_to_check, version=4):
+def return_uuid(sumo, identifier, version=4):
     """Checks if uuid has correct structure
     args:
-    uuid_to_check (str): to be checked
+    identifier (str): either case name of case uuid (prefered)
     version (int): what version of uuid to compare to
     """
     # Concepts stolen from stackoverflow.com
     # questions/19989481/how-to-determine-if-a-string-is-a-valid-v4-uuid
-
-    works_for_me = True
+    logger = init_logging(__name__ + ".return_uuid")
+    logger.info("Checking %s", identifier)
     try:
-        uuid.UUID(uuid_to_check, version=version)
+        logger.info("Checking for uuid")
+        uuid.UUID(identifier, version=version)
     except ValueError:
-        works_for_me = False
-    return works_for_me
+        logger.info("%s should be the name of a case", identifier)
+        warnings.warn(
+            "Using case name: this is not the prefered option,"
+            "might in the case of duplicate case names give errors"
+        )
+        logger.info("Passing %s to return a uuid", identifier)
+        identifier = query_for_sumo_id(sumo, identifier)
+        logger.info("After query we are left with %s", identifier)
+    return identifier
 
 
 def query_for_sumo_id(sumo: SumoClient, case_name: str) -> str:
@@ -102,22 +110,23 @@ def query_for_sumo_id(sumo: SumoClient, case_name: str) -> str:
         size=1,
         select=select,
     )
-    unique_id = results["hits"]["hits"][0]["fmu"]["case"]["uuid"]
+    print(results["hits"]["hits"])
+    unique_id = results["hits"]["hits"][0]["_source"]["fmu"]["case"]["uuid"]
     return unique_id
 
 
-def query_sumo_iterations(sumo: SumoClient, case_name: str) -> list:
+def query_sumo_iterations(sumo: SumoClient, case_uuid: str) -> list:
     """Qeury for iteration names
 
     Args:
         sumo (SumoClient): initialized sumo client
-        case_name (str): name of case
+        case_uuid (str): name of case
 
     Returns:
         list: list with iteration numbers
     """
     logger = init_logging(__name__ + ".query_sumo_iterations")
-    query = f"fmu.case.name:{case_name}"
+    query = f"fmu.case.uuid:{case_uuid}"
     logger.info(query)
     selector = "fmu.iteration.name"
     bucket_name = selector + ".keyword"
@@ -136,7 +145,7 @@ def query_sumo_iterations(sumo: SumoClient, case_name: str) -> list:
 
 def query_sumo(
     sumo: SumoClient,
-    case_name: str,
+    case_uuid: str,
     name: str,
     iteration: str,
     tag: str = "",
@@ -146,7 +155,7 @@ def query_sumo(
 
     Args:
         sumo (SumoClient): initialized sumo client
-        case_name (str): name of case
+        case_uuid (str): name of case
         name (str): name of table
         iteration (str): iteration number
         tag (str, optional): tagname of table. Defaults to "".
@@ -157,7 +166,7 @@ def query_sumo(
     """
     logger = init_logging(__name__ + ".query_sumo")
     query = (
-        f"fmu.case.name:{case_name} AND data.name:{name} "
+        f"fmu.case.uuid:{case_uuid} AND data.name:{name} "
         + f"AND data.content:{content} AND fmu.iteration.name:'{iteration}' AND class:table"
     )
     logger.info("This is the query %s \n", query)
@@ -169,7 +178,7 @@ def query_sumo(
 
 def query_for_table(
     sumo: SumoClient,
-    case_name: str,
+    case_uuid: str,
     name: str,
     iteration: str,
     tag: str = "",
@@ -179,7 +188,7 @@ def query_for_table(
 
     Args:
         sumo (SumoClient): intialized sumo client
-        case_name (str): case name
+        case_uuid (str): case name
         name (str): name of table
         iteration (str): iteration number
         tag (str, optional): tagname of table. Defaults to "".
@@ -192,7 +201,7 @@ def query_for_table(
         tuple: contains parent id, object ids, meta data stub, all real numbers
                and dictionary containing all global variables for all realizations
     """
-    query_results = query_sumo(sumo, case_name, name, iteration, tag, content)
+    query_results = query_sumo(sumo, case_uuid, name, iteration, tag, content)
     if query_results["hits"]["total"]["value"] == 0:
         raise RuntimeError("Query returned with no hits, if you want results: modify!")
     results = get_blob_ids_w_metadata(query_results)

@@ -1,10 +1,16 @@
 """Tests module _utils.py"""
+import logging
 from time import sleep
 from uuid import UUID
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import pyarrow as pa
 from sumo.table_aggregation import utilities as ut
+
+logging.basicConfig(level="DEBUG", format="%(name)s %(levelname)s: %(message)s")
+
+LOGGER = logging.getLogger()
+LOGGER.setLevel("INFO")
 
 
 def assert_correct_uuid(uuid_to_check, version=4):
@@ -61,15 +67,29 @@ def test_query_results(query_results):
         assert found_name == correct_name, mess
 
 
-def test_query_iterations(sumo, case_name):
+def test_return_uuid(sumo, case_name, case_uuid):
+    """Check function return_uuid
+
+    Args:
+        sumo (SumoClient): Client object with given environment
+        case_name (str): The case uuid
+        case_uuid (str): The case name
+    """
+    for identifier in (case_name, case_uuid):
+        returned = ut.return_uuid(sumo, identifier)
+        mess = f"{returned} not equal to {case_uuid}"
+        assert returned == case_uuid, mess
+
+
+def test_query_iterations(sumo, case_uuid):
     """Test query for iteration
 
     Args:
         sumo (SumoClient): Client object with given environment
-        case_name (str, optional): Name of case to interrogate
+        case_uuid (str, optional): Name of case to interrogate
     """
-    print(case_name)
-    results = ut.query_sumo_iterations(sumo, case_name)
+    print(case_uuid)
+    results = ut.query_sumo_iterations(sumo, case_uuid)
     answer = ["iter-0"]
     assert results == answer
 

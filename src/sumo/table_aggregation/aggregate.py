@@ -11,18 +11,23 @@ class TableAggregator:
     """Class for aggregating tables"""
 
     def __init__(
-        self, case_name: str, name: str, iteration: str, token: str = None, **kwargs
+        self,
+        case_identifier: str,
+        name: str,
+        iteration: str,
+        token: str = None,
+        **kwargs
     ):
         """Read the data to be aggregated
         args:
-        case_name (str): name of sumo case
+        case_identifier (str): name of sumo case
         name (str): name of tables to aggregate
         token (str): authentication token
         """
         sumo_env = kwargs.get("sumo_env", "prod")
         self._sumo = SumoClient(sumo_env, token)
         self._content = kwargs.get("content", "timeseries")
-        self._case_name = case_name
+        self._case_identifier = ut.return_uuid(self._sumo, case_identifier)
         self._name = name
         self.loop = asyncio.get_event_loop()
         self._iteration = iteration
@@ -36,7 +41,7 @@ class TableAggregator:
             self._p_meta,
         ) = ut.query_for_table(
             self.sumo,
-            self._case_name,
+            self._case_identifier,
             self._name,
             self._iteration,
             content=self._content,
@@ -52,13 +57,13 @@ class TableAggregator:
         return self._name
 
     @property
-    def case_name(self) -> str:
+    def case_identifier(self) -> str:
         """Return _case_name attribute
 
         Returns:
             str: name of table
         """
-        return self._case_name
+        return self._case_identifier
 
     @property
     def parent_id(self) -> str:

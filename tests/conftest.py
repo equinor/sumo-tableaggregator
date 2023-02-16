@@ -1,13 +1,13 @@
 """Fixtures for tests"""
 from time import sleep
 import asyncio
+from pathlib import Path
 import pytest
 from fmu.sumo.uploader import CaseOnDisk, SumoConnection
 from sumo.wrapper import SumoClient
 from sumo.table_aggregation import utilities as ut
-from pathlib import Path
 
-# These need to be reactivate if you want to rerun making of metadata for case
+# These need to be reactivated if you want to rerun making of metadata for case
 # import pyarrow as pa
 # from pathlib import Path
 # from fmu.config.utilities import yaml_load
@@ -104,30 +104,30 @@ def fixture_case(case_metadata_path, sumo_conn):
         verbosity="DEBUG",
     )
     # Register the case in Sumo
-    sumo_id = case.register()
+    sumo_uuid = case.register()
 
     case.add_files(
         search_string=ROOTPATH
         + "/data/testrun/realization-*/iter-*/share/results/tables/*.arrow"
     )
     case.upload()
-    print("Case registered on Sumo with ID: %s", sumo_id)
+    print("Case registered on Sumo with ID: %s", sumo_uuid)
 
     # Prevent the tests from failing because upload is not completed
     sleep(2)
-    return sumo_id
+    return sumo_uuid
 
 
 @pytest.fixture(name="query_results", scope="session")
-def fixture_query_results(sumo, case_name, name="summary"):
+def fixture_query_results(sumo, case_uuid, name="summary"):
     """Return result for test run
     args:
     sumo (SumoClient instance): the client to use
-    case_name (str): name of case
+    case_uuid (str): name of case
     name (str): name of table
     """
     query_results = ut.query_sumo(
-        sumo, case_name, name, "iter-0", tag="eclipse", content="timeseries"
+        sumo, case_uuid, name, "iter-0", tag="eclipse", content="timeseries"
     )
     return query_results
 
