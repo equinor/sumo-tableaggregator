@@ -14,6 +14,7 @@ class TableAggregator:
         self,
         case_identifier: str,
         name: str,
+        tag: str,
         iteration: str,
         token: str = None,
         **kwargs
@@ -22,6 +23,7 @@ class TableAggregator:
         args:
         case_identifier (str): name of sumo case
         name (str): name of tables to aggregate
+        tag (str): name of tag for table
         token (str): authentication token
         """
         sumo_env = kwargs.get("sumo_env", "prod")
@@ -43,6 +45,7 @@ class TableAggregator:
             self.sumo,
             self._case_identifier,
             self._name,
+            tag,
             self._iteration,
             content=self._content,
         )
