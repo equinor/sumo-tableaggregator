@@ -16,6 +16,7 @@ class TableAggregator:
         name: str,
         tag: str,
         iteration: str,
+        content: str,
         token: str = None,
         **kwargs
     ):
@@ -28,12 +29,11 @@ class TableAggregator:
         """
         sumo_env = kwargs.get("sumo_env", "prod")
         self._sumo = SumoClient(sumo_env, token)
-        self._content = kwargs.get("content", "timeseries")
+        self._content = content
         self._case_identifier = ut.return_uuid(self._sumo, case_identifier)
         self._name = name
         self.loop = asyncio.get_event_loop()
         self._iteration = iteration
-        self._table_index = ["DATE"]
         # try:
         (
             self._parent_id,
@@ -41,13 +41,15 @@ class TableAggregator:
             self._meta,
             self._real_ids,
             self._p_meta,
+            self._table_index,
         ) = ut.query_for_table(
             self.sumo,
             self._case_identifier,
             self._name,
             tag,
             self._iteration,
-            content=self._content,
+            content,
+            **kwargs
         )
 
     @property
@@ -132,22 +134,29 @@ class TableAggregator:
     @ut.timethis("aggregation")
     def aggregate(self):
         """Aggregate objects over tables per real stored in sumo"""
-        self.aggregated = self.loop.run_until_complete(
-            ut.aggregate_arrow(self.object_ids, self.sumo, self.loop)
-        )
+        if self.table_index is not None:
+            self.aggregated = self.loop.run_until_complete(
+                ut.aggregate_arrow(self.object_ids, self.sumo, self.loop)
+            )
+        else:
+            self.aggregated = None
+            print("No aggregation will be done, no table index!!")
 
     @ut.timethis("upload")
     def upload(self):
         """Upload data to sumo"""
-        executor = ThreadPoolExecutor()
-        self.loop.run_until_complete(
-            ut.extract_and_upload(
-                self.sumo,
-                self.parent_id,
-                self.aggregated,
-                self.table_index,
-                self.base_meta,
-                self.loop,
-                executor,
+        if self.aggregated is not None:
+            executor = ThreadPoolExecutor()
+            self.loop.run_until_complete(
+                ut.extract_and_upload(
+                    self.sumo,
+                    self.parent_id,
+                    self.aggregated,
+                    self.table_index,
+                    self.base_meta,
+                    self.loop,
+                    executor,
+                )
             )
-        )
+        else:
+            print("No aggregation in place, so no upload will be done!!")

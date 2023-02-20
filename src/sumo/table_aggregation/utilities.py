@@ -143,35 +143,44 @@ def query_sumo_iterations(sumo: SumoClient, case_uuid: str) -> list:
     return iterations
 
 
+# query_results = query_sumo(sumo, case_uuid, name, iteration, tag, content)
+
+
 def query_sumo(
     sumo: SumoClient,
     case_uuid: str,
     name: str,
+    tag: str,
     iteration: str,
-    tag: str = "",
-    content: str = "timeseries",
+    content: str,
 ) -> dict:
     """Query for given table type
 
     Args:
         sumo (SumoClient): initialized sumo client
-        case_uuid (str): name of case
+        case_uuid (str): case uuid
         name (str): name of table
         iteration (str): iteration number
         tag (str, optional): tagname of table. Defaults to "".
-        content (str, optional): content of table. Defaults to "timeseries".
+        content (str): content of table
 
     Returns:
         dict: query results
     """
     logger = init_logging(__name__ + ".query_sumo")
+    logger.debug(
+        "At query: id: %s, name: %s, tag: %s, it: %s, content: %s",
+        case_uuid,
+        name,
+        tag,
+        iteration,
+        content,
+    )
     query = (
-        f"fmu.case.uuid:{case_uuid} AND data.name:{name} "
+        f"fmu.case.uuid:{case_uuid} AND data.name:{name} AND data.tagname:{tag} "
         + f"AND data.content:{content} AND fmu.iteration.name:'{iteration}' AND class:table"
     )
     logger.info("This is the query %s \n", query)
-    if tag:
-        query += f" AND data.tagname:{tag}"
     query_results = sumo.get(path="/search", query=query, size=1000)
     return query_results
 
@@ -180,18 +189,19 @@ def query_for_table(
     sumo: SumoClient,
     case_uuid: str,
     name: str,
+    tag: str,
     iteration: str,
-    tag: str = "",
-    content: str = "timeseries",
+    content: str,
+    **kwargs: dict,
 ) -> tuple:
     """Fetch object id numbers and metadata
 
     Args:
         sumo (SumoClient): intialized sumo client
-        case_uuid (str): case name
+        case_uuid (str): case uuid
         name (str): name of table
-        iteration (str): iteration number
         tag (str, optional): tagname of table. Defaults to "".
+        iteration (str): iteration number
         content (str, optional): content of table. Defaults to "timeseries".
 
     Raises:
@@ -201,10 +211,19 @@ def query_for_table(
         tuple: contains parent id, object ids, meta data stub, all real numbers
                and dictionary containing all global variables for all realizations
     """
-    query_results = query_sumo(sumo, case_uuid, name, iteration, tag, content)
+    logger = init_logging(__name__ + ".query_for_table")
+    logger.debug(
+        "Passing to query: id: %s, name: %s, tag: %s, it: %s, content: %s",
+        case_uuid,
+        name,
+        tag,
+        iteration,
+        content,
+    )
+    query_results = query_sumo(sumo, case_uuid, name, tag, iteration, content)
     if query_results["hits"]["total"]["value"] == 0:
         raise RuntimeError("Query returned with no hits, if you want results: modify!")
-    results = get_blob_ids_w_metadata(query_results)
+    results = get_blob_ids_w_metadata(query_results, **kwargs)
     return results
 
 
@@ -257,29 +276,39 @@ class MetadataSet:
 
     """Class for arrangement of input to aggregation"""
 
-    def __init__(self):
+    def __init__(self, table_index=None):
         """Sets _parameter_dict to empty dict"""
         self._parameter_dict = {}
         self._real_ids = set()
         self._uuids = set()
+        self._table_index = table_index
 
     @property
     def parameter_dict(self) -> dict:
-        """Returns _parameter_dict attribute"""
+        """Return _parameter_dict attribute"""
         return self._parameter_dict
 
     @property
     def real_ids(self) -> tuple:
-        """Returns _real_ids attribute"""
+        """Return _real_ids attribute"""
         return tuple(self._real_ids)
 
     @property
     def uuids(self) -> list:
-        """Returns _uuid attribute"""
+        """Return _uuid attribute"""
         return self._uuids
 
+    @property
+    def table_index(self):
+        """Return attribute _table_index
+
+        Returns:
+            list: the table index
+        """
+        return self._table_index
+
     def aggid(self) -> str:
-        """Returns the hash of the sum of all the sorted(uuids)"""
+        """Return the hash of the sum of all the sorted(uuids)"""
         return str("".join(sorted(self.uuids)))
 
     def add_realisation(self, real_nr: int, real_parameters: dict):
@@ -300,7 +329,8 @@ class MetadataSet:
         returns agg_metadata (dict): one valid metadata file to be used for
                                      aggregations to come
         """
-        agg_metadata = convert_metadata(metadata, self.real_ids)
+        agg_metadata = convert_metadata(metadata, self.real_ids, self.table_index)
+        self._table_index = agg_metadata["data"]["table_index"]
         return agg_metadata
 
 
@@ -314,7 +344,7 @@ def get_parent_id(result: dict) -> str:
     return parent_id
 
 
-def split_results_and_meta(results: list) -> tuple:
+def split_results_and_meta(results: list, **kwargs: dict) -> tuple:
     """split hits from sumo query
     results (list): query_results["hits"]["hist"]
     returns tuple: tuple with parent id, object ids, meta stub, all real numbers
@@ -324,7 +354,7 @@ def split_results_and_meta(results: list) -> tuple:
     parent_id = get_parent_id(results[0])
     logger.debug("Parent id %s", parent_id)
     col_set = set()
-    meta = MetadataSet()
+    meta = MetadataSet(kwargs.get("table_index", None))
     blob_ids = {}
     for result in results:
         real_meta = result["_source"]
@@ -347,12 +377,20 @@ def split_results_and_meta(results: list) -> tuple:
             "between individual realisations over your iteration\n"
             "This must be fixed before table aggregation is possible"
         )
+
     agg_meta = meta.base_meta(real_meta)
-    split_tup = (parent_id, blob_ids, agg_meta, meta.real_ids, meta.parameter_dict)
+    split_tup = (
+        parent_id,
+        blob_ids,
+        agg_meta,
+        meta.real_ids,
+        meta.parameter_dict,
+        meta.table_index,
+    )
     return split_tup
 
 
-def get_blob_ids_w_metadata(query_results: dict) -> tuple:
+def get_blob_ids_w_metadata(query_results: dict, **kwargs: dict) -> tuple:
     """Get all object ids and metadata for iteration
 
     Args:
@@ -375,7 +413,7 @@ def get_blob_ids_w_metadata(query_results: dict) -> tuple:
             + f"the query with size set to {total_count}"
         )
         warnings.warn(message)
-    return split_results_and_meta(hits)
+    return split_results_and_meta(hits, **kwargs)
 
 
 def reconstruct_table(object_id: str, real_nr: str, sumo: SumoClient) -> pa.Table:
@@ -418,7 +456,7 @@ async def aggregate_arrow(
 
 
 def p10(array_like: Union[np.array, pd.DataFrame]) -> np.array:
-    """Returns p10 of array like
+    """Return p10 of array like
     args:
     array_like (array like): numpy array or pd.Series pd.DataFrame
     """
@@ -426,7 +464,7 @@ def p10(array_like: Union[np.array, pd.DataFrame]) -> np.array:
 
 
 def p90(array_like: Union[np.array, pd.DataFrame]) -> np.array:
-    """Returns p90 of array like
+    """Return p90 of array like
     args:
     array_like (array like): numpy array or pd.Series pd.DataFrame
     """
@@ -775,6 +813,7 @@ async def extract_and_upload(
 def convert_metadata(
     single_metadata: dict,
     real_ids: list,
+    table_index,
     operation: str = "collection",
 ):
     """Makes metadata for the aggregated data from single metadata
@@ -798,6 +837,16 @@ def convert_metadata(
         del agg_metadata["fmu"]["realization"]
     except KeyError:
         logger.debug("No realization part to delete")
+    if table_index is not None:
+
+        agg_metadata["data"]["table_index"] = table_index
+    else:
+        try:
+            table_index = agg_metadata["data"]["table_index"]
+        except KeyError:
+            logger.warning("No table index set, will produce no results")
+            agg_metadata["data"]["table_index"] = None
+
     # Adding specific aggregation ones
     agg_metadata["fmu"]["aggregation"] = agg_metadata["fmu"].get("aggregation", {})
     agg_metadata["fmu"]["aggregation"]["operation"] = operation

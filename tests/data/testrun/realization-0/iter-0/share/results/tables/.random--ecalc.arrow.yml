@@ -46,8 +46,6 @@ data:
     - FOPT
     - DATE
     size: 20
-  table_index:
-  - DATE
   undef_is_zero: false
   is_prediction: true
   is_observation: false

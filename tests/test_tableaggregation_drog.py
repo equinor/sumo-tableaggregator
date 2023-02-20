@@ -3,7 +3,6 @@ import time
 import logging
 from sumo.table_aggregation import TableAggregator
 from sumo.table_aggregation.utilities import timethis, get_object
-import pytest
 
 logging.basicConfig(level="DEBUG", format="%(name)s %(levelname)s: %(message)s")
 
@@ -16,7 +15,9 @@ def fixture_aggregator():
     """Init TableAggregator for case"""
     test_case_name = "drogon_design-2022-12-01"
     test_table_name = "summary"
-    aggregator = TableAggregator(test_case_name, test_table_name, "iter-0", content="*")
+    aggregator = TableAggregator(
+        test_case_name, test_table_name, "", "iter-0", content="*"
+    )
     return aggregator
 
 
@@ -42,7 +43,7 @@ def test_results(aggregator):
     hits = result_query["hits"]["hits"]
     correct_nr = 20
     print(f"Found  {len(hits)} aggregations")
-    # assert len(hits) == correct_nr
+    assert len(hits) == correct_nr
     for result in hits:
         meta = result["_source"]
         name = meta["data"]["name"]

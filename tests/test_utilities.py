@@ -101,7 +101,7 @@ def test_get_blob_ids_w_metadata(ids_and_friends):
     """
     # (parent_id, blob_ids, agg_meta, meta.real_ids, meta.parameter_dict)
     print(ids_and_friends)
-    parent_id, object_ids, meta, real_ids, p_dict = ids_and_friends
+    parent_id, object_ids, meta, real_ids, p_dict, table_index = ids_and_friends
     assert isinstance(parent_id, str)
     assert_uuid_dict(object_ids)
     assert isinstance(meta, dict), f"Meta is not a dict, {type(meta)}"
@@ -109,6 +109,7 @@ def test_get_blob_ids_w_metadata(ids_and_friends):
     assert all(isinstance(num, int) for num in real_ids), "some reals are not int"
     assert isinstance(real_ids, (tuple, list)), ass_mess
     assert isinstance(p_dict, dict), f"parameter_dict is not dict, {type(p_dict)}"
+    assert isinstance(table_index, (list, type(None)))
 
 
 def test_aggregation(aggregated_table):
@@ -196,7 +197,6 @@ def test_upload(
         assert operation in operations, f"Operation {operation} is invalid"
         table = ut.get_object(result["_id"], sumo)
         print(f"{name}-{operation}: {table.column_names}")
-        unique_count
         print("---------")
         print(columns)
         print("---------")

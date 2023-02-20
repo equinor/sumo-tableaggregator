@@ -127,7 +127,7 @@ def fixture_query_results(sumo, case_uuid, name="summary"):
     name (str): name of table
     """
     query_results = ut.query_sumo(
-        sumo, case_uuid, name, "iter-0", tag="eclipse", content="timeseries"
+        sumo, case_uuid, name, "eclipse", "iter-0", content="timeseries"
     )
     return query_results
 
