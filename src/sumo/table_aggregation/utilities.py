@@ -143,9 +143,6 @@ def query_sumo_iterations(sumo: SumoClient, case_uuid: str) -> list:
     return iterations
 
 
-# query_results = query_sumo(sumo, case_uuid, name, iteration, tag, content)
-
-
 def query_sumo(
     sumo: SumoClient,
     case_uuid: str,
@@ -582,8 +579,11 @@ def prepare_object_launch(meta: dict, table, name, operation):
     full_meta["file"]["checksum_md5"] = md5
     full_meta["fmu"]["aggregation"]["id"] = uuid_from_string(md5)
     full_meta["fmu"]["aggregation"]["operation"] = operation
-    if full_meta["data"]["table_index"] == full_meta["data"]["spec"]["columns"]:
-        unique_name = "index--" + unique_name
+
+    if name == "table_index":
+        full_meta["data"]["content"] = "table_index"
+    # if full_meta["data"]["table_index"] == full_meta["data"]["spec"]["columns"]:
+    # unique_name = "index--" + unique_name
     full_meta["data"]["spec"]["columns"] = table.column_names
     if operation == "collection":
         full_meta["data"]["table_index"].append("REAL")

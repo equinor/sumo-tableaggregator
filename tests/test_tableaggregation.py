@@ -13,15 +13,18 @@ def test_table_aggregator():
     """Tests TableAggregator"""
     test_case_uuid = "270ac54e-dd42-4027-bd27-ccbb3bad9d3a"
     test_table_name = "summary"
-    aggregator = TableAggregator(
-        test_case_uuid,
-        test_table_name,
-        "eclipse",
-        "iter-0",
-        sumo_env="dev",
-    )
-    aggregator.aggregate()
-    aggregator.upload()
+    for iter_name in ["iter-0", "iter-1"]:
+        aggregator = TableAggregator(
+            test_case_uuid,
+            test_table_name,
+            "eclipse",
+            iter_name,
+            "timeseries",
+            sumo_env="dev",
+            table_index=["DATE"],
+        )
+        aggregator.aggregate()
+        aggregator.upload()
 
 
 if __name__ == "__main__":
