@@ -17,6 +17,7 @@ from pyarrow import feather
 import pyarrow.parquet as pq
 from sumo.wrapper import SumoClient
 from sumo.wrapper._request_error import PermanentError
+from io import BytesIO
 
 
 def timethis(label):
@@ -262,10 +263,16 @@ def arrow_to_table(blob_object) -> pa.Table:
     blob_object (dict): the object to read
     pa.Table: the read results
     """
+    logger = init_logging(__name__ + ".arrow_to_table")
+
     try:
         table = pq.read_table(pa.BufferReader(blob_object))
     except pa.lib.ArrowInvalid:
-        table = feather.read_table(pa.BufferReader(blob_object))
+        try:
+            table = feather.read_table(pa.BufferReader(blob_object))
+        except pa.lib.ArrowInvalid:
+            table = pa.Table.from_pandas(pd.read_csv(BytesIO(blob_object)))
+    logger.debug("Returning table with columns %s", table.column_names)
     return table
 
 
@@ -520,7 +527,6 @@ def make_stat_aggregations(
 
         logger.debug("Calculating statistics on vector %s", col_name)
         logger.debug("Table index %s", table_index)
-        logger.debug(table.column("DATE"))
         logger.debug(
             "Columns before conversion to pandas df %s (size %s)",
             table.column_names,
