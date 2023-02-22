@@ -491,15 +491,6 @@ def do_stats(frame, index, col_name, aggfunc, aggname):
     # frame = table.to_pandas()
     logger.debug("Columns prior to groupby: %s", frame.columns)
     stat = frame.groupby(index)[col_name].agg(aggfunc).to_frame().reset_index()
-    keepers = [name for name in stat.columns if name not in index]
-    logger.info(
-        "Keeping these columns: %s for %s (%s)",
-        keepers,
-        col_name,
-        aggname,
-    )
-    stat = stat[keepers]
-    # stat.columns = [aggname]
     table = pa.Table.from_pandas(stat)
     output = (aggname, table)
     logger.debug("%s %s", output[0], output[1].column_names)
@@ -740,42 +731,6 @@ async def extract_and_upload(
     # task scheduler
     tasks = []
     table_dict = {}
-    # Queue table index
-    tasks.append(
-        call_parallel(
-            loop,
-            executor,
-            upload_table,
-            sumo,
-            parent_id,
-            table.select(neccessaries),
-            "table_index",
-            meta_stub,
-            "collection",
-        )
-    )
-    # Make and queue table index for stat aggregated objects
-    stat_index = pa.Table.from_pandas(
-        table.select(neccessaries)
-        .to_pandas()
-        .groupby(table_index)
-        .mean("REAL")
-        .reset_index()
-        .drop("REAL", axis=1)
-    )
-    tasks.append(
-        call_parallel(
-            loop,
-            executor,
-            upload_table,
-            sumo,
-            parent_id,
-            stat_index,
-            "table_index",
-            meta_stub,
-            "mean",
-        )
-    )
     for col_name in table.column_names:
         if col_name in (neccessaries + unneccessaries):
             continue
@@ -791,7 +746,7 @@ async def extract_and_upload(
                 upload_table,
                 sumo,
                 parent_id,
-                table.select([col_name]),
+                export_frame,
                 col_name,
                 meta_stub,
                 "collection",
