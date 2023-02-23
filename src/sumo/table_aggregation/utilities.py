@@ -515,7 +515,6 @@ def make_stat_aggregations(
     aggdict = {"mean": "mean", "min": "min", "max": "max", "p10": p10, "p90": p90}
     stat_input = []
     for col_name, table in table_dict.items():
-
         logger.debug("Calculating statistics on vector %s", col_name)
         logger.debug("Table index %s", table_index)
         logger.debug(
@@ -576,11 +575,6 @@ def prepare_object_launch(meta: dict, table, name, operation):
     full_meta["file"]["checksum_md5"] = md5
     full_meta["fmu"]["aggregation"]["id"] = uuid_from_string(md5)
     full_meta["fmu"]["aggregation"]["operation"] = operation
-
-    if name == "table_index":
-        full_meta["data"]["content"] = "table_index"
-    # if full_meta["data"]["table_index"] == full_meta["data"]["spec"]["columns"]:
-    # unique_name = "index--" + unique_name
     full_meta["data"]["spec"]["columns"] = table.column_names
     if operation == "collection":
         full_meta["data"]["table_index"].append("REAL")
@@ -679,7 +673,6 @@ def upload_stats(
     logger.info("%s tables to upload", len(stat_input))
 
     for item in stat_input:
-
         operation, table = item
         name = table.column_names.pop()
         tasks.append(
@@ -735,7 +728,7 @@ async def extract_and_upload(
         if col_name in (neccessaries + unneccessaries):
             continue
         logger.debug("Preparing %s", col_name)
-        keep_cols = table_index + [col_name]
+        keep_cols = neccessaries + [col_name]
         logger.debug("Columns to pass through %s", keep_cols)
         export_frame = table.select(keep_cols)
         table_dict[col_name] = export_frame
@@ -799,7 +792,6 @@ def convert_metadata(
     except KeyError:
         logger.debug("No realization part to delete")
     if table_index is not None:
-
         agg_metadata["data"]["table_index"] = table_index
     else:
         try:
