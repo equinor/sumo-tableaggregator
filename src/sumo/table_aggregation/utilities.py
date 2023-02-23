@@ -176,7 +176,7 @@ def query_sumo(
     )
     query = (
         f"fmu.case.uuid:{case_uuid} AND data.name:{name} AND data.tagname:{tag} "
-        + f"AND data.content:{content} AND fmu.iteration.name:'{iteration}' AND class:table"
+        + f"AND data.content:{content} AND fmu.iteration.name:'{iteration}' AND class:table AND NOT fmu.aggregation.operation:*"
     )
     logger.info("This is the query %s \n", query)
     query_results = sumo.get(path="/search", query=query, size=1000)
