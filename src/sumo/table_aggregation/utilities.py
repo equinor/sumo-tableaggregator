@@ -10,6 +10,7 @@ from typing import Dict, Union
 import asyncio
 from multiprocessing import get_context
 from copy import deepcopy
+from io import BytesIO
 import numpy as np
 import pandas as pd
 import pyarrow as pa
@@ -17,7 +18,6 @@ from pyarrow import feather
 import pyarrow.parquet as pq
 from sumo.wrapper import SumoClient
 from sumo.wrapper._request_error import PermanentError
-from io import BytesIO
 
 
 def timethis(label):
@@ -176,7 +176,8 @@ def query_sumo(
     )
     query = (
         f"fmu.case.uuid:{case_uuid} AND data.name:{name} AND data.tagname:{tag} "
-        + f"AND data.content:{content} AND fmu.iteration.name:'{iteration}' AND class:table AND NOT fmu.aggregation.operation:*"
+        + f"AND data.content:{content} AND fmu.iteration.name:'{iteration}' AND class:table "
+        + "AND NOT fmu.aggregation.operation:*"
     )
     logger.info("This is the query %s \n", query)
     query_results = sumo.get(path="/search", query=query, size=1000)
@@ -333,7 +334,9 @@ class MetadataSet:
         returns agg_metadata (dict): one valid metadata file to be used for
                                      aggregations to come
         """
-        agg_metadata = convert_metadata(metadata, self.real_ids, self.table_index)
+        agg_metadata = convert_metadata(
+            metadata, self.real_ids, self.parameter_dict, self.table_index
+        )
         self._table_index = agg_metadata["data"]["table_index"]
         return agg_metadata
 
@@ -387,8 +390,6 @@ def split_results_and_meta(results: list, **kwargs: dict) -> tuple:
         parent_id,
         blob_ids,
         agg_meta,
-        meta.real_ids,
-        meta.parameter_dict,
         meta.table_index,
     )
     return split_tup
@@ -767,15 +768,17 @@ async def extract_and_upload(
 def convert_metadata(
     single_metadata: dict,
     real_ids: list,
+    parameters: dict,
     table_index,
     operation: str = "collection",
 ):
-    """Makes metadata for the aggregated data from single metadata
+    """Make metadata for the aggregated data from single metadata
     args:
     single_metadata (dict): one single metadata dict
     real_ids (list): list of realization numbers, needed for metadata
-    context (str): the context that this comes from, currently the only
-                   existing is fmu
+    parameters (dict): dictionary of dictionaries, with key as global var name
+                       as key, then value being dict with key as real and value
+                       as global var value
     operation (str): what type of operation the aggregation performs
     returns agg_metadata (dict): metadata dict that can be further used for aggregation
     """
@@ -804,6 +807,7 @@ def convert_metadata(
     agg_metadata["fmu"]["aggregation"] = agg_metadata["fmu"].get("aggregation", {})
     agg_metadata["fmu"]["aggregation"]["operation"] = operation
     agg_metadata["fmu"]["aggregation"]["realization_ids"] = list(real_ids)
+    agg_metadata["fmu"]["iteration"]["parameters"] = parameters
     agg_metadata["fmu"]["context"]["stage"] = "iteration"
     # Since no file on disk, trying without paths
     agg_metadata["file"]["absolute_path"] = ""

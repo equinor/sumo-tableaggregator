@@ -29,7 +29,6 @@ class TableAggregator:
         """
         sumo_env = kwargs.get("sumo_env", "prod")
         self._sumo = SumoClient(sumo_env, token)
-        self._content = content
         self._case_identifier = ut.return_uuid(self._sumo, case_identifier)
         self._name = name
         self.loop = asyncio.get_event_loop()
@@ -39,8 +38,6 @@ class TableAggregator:
             self._parent_id,
             self._object_ids,
             self._meta,
-            self._real_ids,
-            self._p_meta,
             self._table_index,
         ) = ut.query_for_table(
             self.sumo,
@@ -98,16 +95,6 @@ class TableAggregator:
     def iteration(self) -> str:
         """Return the _iteration attribute"""
         return self._iteration
-
-    @property
-    def real_ids(self) -> list:
-        """Return _real_ids attribute"""
-        return self._real_ids
-
-    @property
-    def parameters(self) -> dict:
-        """Return the _p_meta attribute"""
-        return self._p_meta
 
     @property
     def base_meta(self) -> dict:
