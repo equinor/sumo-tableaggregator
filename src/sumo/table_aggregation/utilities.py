@@ -322,10 +322,17 @@ class MetadataSet:
         real_parameters (dict): parameters from one realisation
         """
         self._real_ids.add(real_nr)
-        for name in real_parameters:
+        for name, values in real_parameters.items():
             if name not in self._parameter_dict:
                 self._parameter_dict[name] = {}
-            self._parameter_dict[name][real_nr] = real_parameters[name]
+            try:
+                for sub_name, value in values.items():
+                    if sub_name not in self._parameter_dict[name]:
+                        self._parameter_dict[name][sub_name] = {}
+
+                    self._parameter_dict[name][sub_name][real_nr] = value
+            except AttributeError:
+                self._parameter_dict[name][real_nr] = values
 
     def base_meta(self, metadata: dict) -> dict:
         """Converts one metadata file into aggregated metadata

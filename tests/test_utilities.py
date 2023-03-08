@@ -2,10 +2,9 @@
 import logging
 from time import sleep
 from uuid import UUID
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
 import pyarrow as pa
 from sumo.table_aggregation import utilities as ut
+import yaml
 
 logging.basicConfig(level="DEBUG", format="%(name)s %(levelname)s: %(message)s")
 
@@ -52,9 +51,9 @@ def test_parent_uuid(case_uuid):
     assert_correct_uuid(case_uuid)
 
 
-def test_query_results(query_results):
+def test_query_input(query_input):
     """Tests query results"""
-    results = query_results["hits"]["hits"]
+    results = query_input["hits"]["hits"]
     print(results)
     res_length = len(results)
     # Check length of results, there are only 4
@@ -101,14 +100,10 @@ def test_get_blob_ids_w_metadata(ids_and_friends):
     """
     # (parent_id, blob_ids, agg_meta, meta.real_ids, meta.parameter_dict)
     print(ids_and_friends)
-    parent_id, object_ids, meta, real_ids, p_dict, table_index = ids_and_friends
+    parent_id, object_ids, meta, table_index = ids_and_friends
     assert isinstance(parent_id, str)
     assert_uuid_dict(object_ids)
     assert isinstance(meta, dict), f"Meta is not a dict, {type(meta)}"
-    ass_mess = f"Real ids are not tuple, or list {type(real_ids)}"
-    assert all(isinstance(num, int) for num in real_ids), "some reals are not int"
-    assert isinstance(real_ids, (tuple, list)), ass_mess
-    assert isinstance(p_dict, dict), f"parameter_dict is not dict, {type(p_dict)}"
     assert isinstance(table_index, (list, type(None)))
 
 
@@ -126,34 +121,10 @@ def test_aggregation(aggregated_table):
 
 
 def test_upload(
-    ids_and_friends,
-    case_name,
-    aggregated_table,
-    sumo,
+    do_upload, query_results, case_name, sumo, ids_and_friends, aggregated_table
 ):
     """Upload data to sumo"""
-    executor = ThreadPoolExecutor()
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(
-        ut.extract_and_upload(
-            sumo,
-            ids_and_friends[0],
-            aggregated_table,
-            ["DATE"],
-            ids_and_friends[2],
-            loop,
-            executor,
-        )
-    )
-    # Prevent tests from failing because upload is not done
-    sleep(5)
-    result_query = sumo.get(
-        "/search",
-        query=f"fmu.case.name:{case_name} AND class:table AND fmu.aggregation:*",
-        size=100,
-    )
-    hits = result_query["hits"]["hits"]
-    print(f"Found  {len(hits)} aggregations")
+    # Define paths to check against
     operations = ("collection", "mean", "min", "max", "p10", "p90")
     valids = ["FOPP", "FOPT", "FOPR"]
     all_names = [
@@ -161,15 +132,14 @@ def test_upload(
         for name in valids
         for op in operations
     ]
-    all_names.extend(
-        [
-            "summary--table_index--eclipse--mean--iter-0",
-            "summary--table_index--eclipse--collection--iter-0",
-        ]
-    )
+    # Run upload
+    do_upload(sumo, ids_and_friends, aggregated_table)
+    sleep(5)
+    hits = query_results(sumo, case_name)
+    print(f"Found  {len(hits)} aggregations")
     unique_count = {name: 0 for name in all_names}
     for result in hits:
-        correct_len = 1
+        correct_len = 3
         meta = result["_source"]
         name = meta["data"]["name"]
         print(f"data.name: {name}")
@@ -182,15 +152,16 @@ def test_upload(
         print(f"file.relative_path: {rel_path}")
         unique_count[rel_path] += 1
         index_names = meta["data"]["table_index"]
-        if "DATE" in columns:
-            if operation == "collection":
-                correct_len = 2
-
+        print(index_names)
+        print(columns)
         col_len = len(columns)
+        # For statistical aggregations
+        if len(index_names) == 1:
+            correct_len = 2
         assert (
             col_len == correct_len
-        ), f"Length of columns != 1 ({col_len}) and cols are {columns}"
-        if col_len == 1:
+        ), f"Length of columns != {correct_len} ({col_len}) and cols are {columns}"
+        if col_len == 2:
             col_name = columns.pop()
             if "DATE" not in index_names:
                 assert col_name in valids, f"Column name {col_name} is invalid"
@@ -201,6 +172,7 @@ def test_upload(
         print(columns)
         print("---------")
 
+    # Check if all objects are made
     missing = []
     total_count = 0
     for rel_path, count in unique_count.items():
@@ -212,3 +184,45 @@ def test_upload(
     assert (
         len(missing) == 0
     ), f"These paths are missing {miss_mess} (found {total_count})"
+
+
+def assert_reals(real_dict):
+    """Test if keys can be made into int's in dict
+
+    Args:
+        real_dict (dict): dict to check
+    """
+    for real_nr in real_dict.keys():
+        assert isinstance(int(real_nr), int), f"{real_nr} cannot be converted to int"
+
+
+def test_parameter_dict(query_results, sumo, case_name):
+    """Test the parameter dictionary generated
+
+    Args:
+        query_results (dict): list of hist from sumo query
+        sumo (SumoClient): client to given sumo environment
+        case_name (str): name of case
+    """
+    p_dict = query_results(sumo, case_name)[0]["_source"]["fmu"]["iteration"][
+        "parameters"
+    ]
+
+    assert len(p_dict) == 3
+    for group_name, group_dict in p_dict.items():
+        if group_name == "FILE":
+            assert_reals(group_dict)
+        else:
+            # print(group_dict.keys())
+            # print(group_dict.values())
+            for key, value in group_dict.items():
+                print(key)
+                assert_reals(value)
+
+    #     assert isinstance(
+    #         group_dict, dict
+    #     ), f"Group {group_name} is not dict but {type(group_dict)}"
+    #     for var_name, var_dict in group_dict.items():
+    #         assert all(
+    #             isinstance(real_nr, int) for real_nr in var_dict
+    #         ), f"Not all real_nrs for {var_name} are int {group_dict.keys()}"
