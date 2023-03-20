@@ -144,6 +144,52 @@ def query_sumo_iterations(sumo: SumoClient, case_uuid: str) -> list:
     return iterations
 
 
+def query_for_name_and_tags(sumo: SumoClient, case_uuid: str, iteration: str):
+    """Make dict with key as table name, value corresponding tags
+
+    Args:
+        sumo (SumoClient): Initialized sumo client
+        case_uuid (str): uuid for case
+        iteration (str): iteration name
+
+    Returns:
+        dict: the results
+    """
+    query = {
+        "query": {
+            "bool": {
+                "must": [
+                    {"term": {"_sumo.parent_object.keyword": {"value": case_uuid}}},
+                    {"term": {"class.keyword": {"value": "table"}}},
+                    {"term": {"fmu.iteration.name.keyword": {"value": iteration}}},
+                ],
+                "must_not": [{"term": {"data.tagname.keyword": {"value": ""}}}],
+            }
+        },
+        "aggs": {
+            "table": {
+                "terms": {"field": "data.name.keyword", "size": 10},
+                "aggs": {
+                    "tagname": {"terms": {"field": "data.tagname.keyword", "size": 10}}
+                },
+            }
+        },
+        "size": 0,
+    }
+    results = sumo.post("/search", json=query).json()
+    print(results)
+    print("---")
+    name_with_tags = {}
+    for hit in results["aggregations"]["table"]["buckets"]:
+        print(hit["key"])
+        name = hit["key"]
+        name_with_tags[name] = name_with_tags.get(name, [])
+        for taghit in hit["tagname"]["buckets"]:
+            name_with_tags[name].append(taghit["key"])
+    print(name_with_tags)
+    return name_with_tags
+
+
 def query_sumo(
     sumo: SumoClient,
     case_uuid: str,
