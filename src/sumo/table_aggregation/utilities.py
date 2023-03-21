@@ -145,7 +145,7 @@ def query_sumo_iterations(sumo: SumoClient, case_uuid: str) -> list:
 
 
 def query_for_name_and_tags(sumo: SumoClient, case_uuid: str, iteration: str):
-    """Make dict with key as table name, value corresponding tags
+    """Make dict with key as table name, and value list of corresponding tags
 
     Args:
         sumo (SumoClient): Initialized sumo client
