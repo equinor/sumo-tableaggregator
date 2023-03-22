@@ -11,7 +11,7 @@ LOGGER = logging.getLogger()
 @timethis("Whole process")
 def test_table_aggregator():
     """Tests TableAggregator"""
-    test_case_uuid = "270ac54e-dd42-4027-bd27-ccbb3bad9d3a"
+    test_case_uuid = "10f41041-2c17-4374-a735-bb0de62e29dc"
     test_table_name = "summary"
     for iter_name in ["iter-0", "iter-1"]:
         aggregator = TableAggregator(

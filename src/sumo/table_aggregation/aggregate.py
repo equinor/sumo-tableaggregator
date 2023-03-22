@@ -29,7 +29,6 @@ class TableAggregator:
         """
         sumo_env = kwargs.get("sumo_env", "prod")
         self._sumo = SumoClient(sumo_env, token)
-        self._content = content
         self._case_identifier = ut.return_uuid(self._sumo, case_identifier)
         self._name = name
         self.loop = asyncio.get_event_loop()
@@ -39,8 +38,6 @@ class TableAggregator:
             self._parent_id,
             self._object_ids,
             self._meta,
-            self._real_ids,
-            self._p_meta,
             self._table_index,
         ) = ut.query_for_table(
             self.sumo,
@@ -100,16 +97,6 @@ class TableAggregator:
         return self._iteration
 
     @property
-    def real_ids(self) -> list:
-        """Return _real_ids attribute"""
-        return self._real_ids
-
-    @property
-    def parameters(self) -> dict:
-        """Return the _p_meta attribute"""
-        return self._p_meta
-
-    @property
     def base_meta(self) -> dict:
         """Return _meta attribute"""
         return self._meta
@@ -160,3 +147,54 @@ class TableAggregator:
             )
         else:
             print("No aggregation in place, so no upload will be done!!")
+
+    def run(self):
+        """Run aggregation and upload"""
+        self.aggregate()
+        self.upload()
+
+
+class AggregationRunner:
+    """Class for running all aggregations of tables for specific case"""
+
+    def __init__(self, uuid: str, env: str = "prod") -> None:
+        """Init of sumo env
+
+        Args:
+            uuid (str): the uuid of the case
+            env (str, optional): the name of the sumo environment for the case, default prod
+        """
+        self._env = env
+        self._uuid = uuid
+        self._sumo = SumoClient(env)
+
+    @property
+    def uuid(self):
+        """Return uuid of case
+
+        Returns:
+            str: uuid of case
+        """
+        return self._uuid
+
+    @property
+    def env(self):
+        """Return environment of case
+
+        Returns:
+            str: sumo environment
+        """
+        return self._env
+
+    def run(self) -> None:
+        """Run all aggregation related to case"""
+
+        iterations = ut.query_sumo_iterations(self._sumo, self.uuid)
+        for iter_name in iterations:
+            names_w_tags = ut.query_for_name_and_tags(self._sumo, self.uuid, iter_name)
+            for name, tag_list in names_w_tags.items():
+                for tag in tag_list:
+                    aggregator = TableAggregator(
+                        self._uuid, name, tag, iter_name, "*", sumo_env=self._env
+                    )
+                    aggregator.run()

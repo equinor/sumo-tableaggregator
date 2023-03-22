@@ -10,6 +10,7 @@ from typing import Dict, Union
 import asyncio
 from multiprocessing import get_context
 from copy import deepcopy
+from io import BytesIO
 import numpy as np
 import pandas as pd
 import pyarrow as pa
@@ -17,7 +18,6 @@ from pyarrow import feather
 import pyarrow.parquet as pq
 from sumo.wrapper import SumoClient
 from sumo.wrapper._request_error import PermanentError
-from io import BytesIO
 
 
 def timethis(label):
@@ -144,6 +144,52 @@ def query_sumo_iterations(sumo: SumoClient, case_uuid: str) -> list:
     return iterations
 
 
+def query_for_name_and_tags(sumo: SumoClient, case_uuid: str, iteration: str):
+    """Make dict with key as table name, and value list of corresponding tags
+
+    Args:
+        sumo (SumoClient): Initialized sumo client
+        case_uuid (str): uuid for case
+        iteration (str): iteration name
+
+    Returns:
+        dict: the results
+    """
+    query = {
+        "query": {
+            "bool": {
+                "must": [
+                    {"term": {"_sumo.parent_object.keyword": {"value": case_uuid}}},
+                    {"term": {"class.keyword": {"value": "table"}}},
+                    {"term": {"fmu.iteration.name.keyword": {"value": iteration}}},
+                ],
+                "must_not": [{"term": {"data.tagname.keyword": {"value": ""}}}],
+            }
+        },
+        "aggs": {
+            "table": {
+                "terms": {"field": "data.name.keyword", "size": 10},
+                "aggs": {
+                    "tagname": {"terms": {"field": "data.tagname.keyword", "size": 10}}
+                },
+            }
+        },
+        "size": 0,
+    }
+    results = sumo.post("/search", json=query).json()
+    print(results)
+    print("---")
+    name_with_tags = {}
+    for hit in results["aggregations"]["table"]["buckets"]:
+        print(hit["key"])
+        name = hit["key"]
+        name_with_tags[name] = name_with_tags.get(name, [])
+        for taghit in hit["tagname"]["buckets"]:
+            name_with_tags[name].append(taghit["key"])
+    print(name_with_tags)
+    return name_with_tags
+
+
 def query_sumo(
     sumo: SumoClient,
     case_uuid: str,
@@ -176,7 +222,8 @@ def query_sumo(
     )
     query = (
         f"fmu.case.uuid:{case_uuid} AND data.name:{name} AND data.tagname:{tag} "
-        + f"AND data.content:{content} AND fmu.iteration.name:'{iteration}' AND class:table"
+        + f"AND data.content:{content} AND fmu.iteration.name:'{iteration}' AND class:table "
+        + "AND NOT fmu.aggregation.operation:*"
     )
     logger.info("This is the query %s \n", query)
     query_results = sumo.get(path="/search", query=query, size=1000)
@@ -321,10 +368,17 @@ class MetadataSet:
         real_parameters (dict): parameters from one realisation
         """
         self._real_ids.add(real_nr)
-        for name in real_parameters:
+        for name, values in real_parameters.items():
             if name not in self._parameter_dict:
                 self._parameter_dict[name] = {}
-            self._parameter_dict[name][real_nr] = real_parameters[name]
+            try:
+                for sub_name, value in values.items():
+                    if sub_name not in self._parameter_dict[name]:
+                        self._parameter_dict[name][sub_name] = {}
+
+                    self._parameter_dict[name][sub_name][real_nr] = value
+            except AttributeError:
+                self._parameter_dict[name][real_nr] = values
 
     def base_meta(self, metadata: dict) -> dict:
         """Converts one metadata file into aggregated metadata
@@ -333,7 +387,9 @@ class MetadataSet:
         returns agg_metadata (dict): one valid metadata file to be used for
                                      aggregations to come
         """
-        agg_metadata = convert_metadata(metadata, self.real_ids, self.table_index)
+        agg_metadata = convert_metadata(
+            metadata, self.real_ids, self.parameter_dict, self.table_index
+        )
         self._table_index = agg_metadata["data"]["table_index"]
         return agg_metadata
 
@@ -387,8 +443,6 @@ def split_results_and_meta(results: list, **kwargs: dict) -> tuple:
         parent_id,
         blob_ids,
         agg_meta,
-        meta.real_ids,
-        meta.parameter_dict,
         meta.table_index,
     )
     return split_tup
@@ -491,15 +545,6 @@ def do_stats(frame, index, col_name, aggfunc, aggname):
     # frame = table.to_pandas()
     logger.debug("Columns prior to groupby: %s", frame.columns)
     stat = frame.groupby(index)[col_name].agg(aggfunc).to_frame().reset_index()
-    keepers = [name for name in stat.columns if name not in index]
-    logger.info(
-        "Keeping these columns: %s for %s (%s)",
-        keepers,
-        col_name,
-        aggname,
-    )
-    stat = stat[keepers]
-    # stat.columns = [aggname]
     table = pa.Table.from_pandas(stat)
     output = (aggname, table)
     logger.debug("%s %s", output[0], output[1].column_names)
@@ -524,7 +569,6 @@ def make_stat_aggregations(
     aggdict = {"mean": "mean", "min": "min", "max": "max", "p10": p10, "p90": p90}
     stat_input = []
     for col_name, table in table_dict.items():
-
         logger.debug("Calculating statistics on vector %s", col_name)
         logger.debug("Table index %s", table_index)
         logger.debug(
@@ -585,11 +629,6 @@ def prepare_object_launch(meta: dict, table, name, operation):
     full_meta["file"]["checksum_md5"] = md5
     full_meta["fmu"]["aggregation"]["id"] = uuid_from_string(md5)
     full_meta["fmu"]["aggregation"]["operation"] = operation
-
-    if name == "table_index":
-        full_meta["data"]["content"] = "table_index"
-    # if full_meta["data"]["table_index"] == full_meta["data"]["spec"]["columns"]:
-    # unique_name = "index--" + unique_name
     full_meta["data"]["spec"]["columns"] = table.column_names
     if operation == "collection":
         full_meta["data"]["table_index"].append("REAL")
@@ -688,7 +727,6 @@ def upload_stats(
     logger.info("%s tables to upload", len(stat_input))
 
     for item in stat_input:
-
         operation, table = item
         name = table.column_names.pop()
         tasks.append(
@@ -740,47 +778,11 @@ async def extract_and_upload(
     # task scheduler
     tasks = []
     table_dict = {}
-    # Queue table index
-    tasks.append(
-        call_parallel(
-            loop,
-            executor,
-            upload_table,
-            sumo,
-            parent_id,
-            table.select(neccessaries),
-            "table_index",
-            meta_stub,
-            "collection",
-        )
-    )
-    # Make and queue table index for stat aggregated objects
-    stat_index = pa.Table.from_pandas(
-        table.select(neccessaries)
-        .to_pandas()
-        .groupby(table_index)
-        .mean("REAL")
-        .reset_index()
-        .drop("REAL", axis=1)
-    )
-    tasks.append(
-        call_parallel(
-            loop,
-            executor,
-            upload_table,
-            sumo,
-            parent_id,
-            stat_index,
-            "table_index",
-            meta_stub,
-            "mean",
-        )
-    )
     for col_name in table.column_names:
         if col_name in (neccessaries + unneccessaries):
             continue
         logger.debug("Preparing %s", col_name)
-        keep_cols = table_index + [col_name]
+        keep_cols = neccessaries + [col_name]
         logger.debug("Columns to pass through %s", keep_cols)
         export_frame = table.select(keep_cols)
         table_dict[col_name] = export_frame
@@ -791,7 +793,7 @@ async def extract_and_upload(
                 upload_table,
                 sumo,
                 parent_id,
-                table.select([col_name]),
+                export_frame,
                 col_name,
                 meta_stub,
                 "collection",
@@ -819,15 +821,17 @@ async def extract_and_upload(
 def convert_metadata(
     single_metadata: dict,
     real_ids: list,
+    parameters: dict,
     table_index,
     operation: str = "collection",
 ):
-    """Makes metadata for the aggregated data from single metadata
+    """Make metadata for the aggregated data from single metadata
     args:
     single_metadata (dict): one single metadata dict
     real_ids (list): list of realization numbers, needed for metadata
-    context (str): the context that this comes from, currently the only
-                   existing is fmu
+    parameters (dict): dictionary of dictionaries, with key as global var name
+                       as key, then value being dict with key as real and value
+                       as global var value
     operation (str): what type of operation the aggregation performs
     returns agg_metadata (dict): metadata dict that can be further used for aggregation
     """
@@ -844,7 +848,6 @@ def convert_metadata(
     except KeyError:
         logger.debug("No realization part to delete")
     if table_index is not None:
-
         agg_metadata["data"]["table_index"] = table_index
     else:
         try:
@@ -857,6 +860,7 @@ def convert_metadata(
     agg_metadata["fmu"]["aggregation"] = agg_metadata["fmu"].get("aggregation", {})
     agg_metadata["fmu"]["aggregation"]["operation"] = operation
     agg_metadata["fmu"]["aggregation"]["realization_ids"] = list(real_ids)
+    agg_metadata["fmu"]["iteration"]["parameters"] = parameters
     agg_metadata["fmu"]["context"]["stage"] = "iteration"
     # Since no file on disk, trying without paths
     agg_metadata["file"]["absolute_path"] = ""
