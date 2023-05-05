@@ -69,7 +69,7 @@ def md5sum(bytes_string: bytes) -> str:
 
 
 def return_uuid(sumo, identifier, version=4):
-    """Checks if uuid has correct structure
+    """Return fmu.case.uuid, either via name, or just pass on
     args:
     identifier (str): either case name of case uuid (prefered)
     version (int): what version of uuid to compare to
@@ -77,19 +77,19 @@ def return_uuid(sumo, identifier, version=4):
     # Concepts stolen from stackoverflow.com
     # questions/19989481/how-to-determine-if-a-string-is-a-valid-v4-uuid
     logger = init_logging(__name__ + ".return_uuid")
-    logger.info("Checking %s", identifier)
+    logger.debug("Checking %s", identifier)
     try:
-        logger.info("Checking for uuid")
+        logger.debug("Checking for uuid")
         uuid.UUID(identifier, version=version)
     except ValueError:
-        logger.info("%s should be the name of a case", identifier)
+        logger.warning("%s should be the name of a case", identifier)
         warnings.warn(
             "Using case name: this is not the prefered option,"
             "might in the case of duplicate case names give errors"
         )
-        logger.info("Passing %s to return a uuid", identifier)
+        logger.debug("Passing %s to return a uuid", identifier)
         identifier = query_for_sumo_id(sumo, identifier)
-        logger.info("After query we are left with %s", identifier)
+        logger.debug("After query we are left with %s", identifier)
     return identifier
 
 
@@ -103,6 +103,7 @@ def query_for_sumo_id(sumo: SumoClient, case_name: str) -> str:
     Returns:
         str: case uuid
     """
+    logger = init_logging(__name__ + ".query_for_sumo_id")
     select = "fmu.case.uuid"
     query = f"fmu.case.name:{case_name}"
     results = sumo.get(
@@ -111,7 +112,7 @@ def query_for_sumo_id(sumo: SumoClient, case_name: str) -> str:
         size=1,
         select=select,
     )
-    print(results["hits"]["hits"])
+    logger.debug("%s hits.", len(results["hits"]["hits"]))
     unique_id = results["hits"]["hits"][0]["_source"]["fmu"]["case"]["uuid"]
     return unique_id
 
@@ -127,8 +128,8 @@ def query_sumo_iterations(sumo: SumoClient, case_uuid: str) -> list:
         list: list with iteration numbers
     """
     logger = init_logging(__name__ + ".query_sumo_iterations")
-    query = f"fmu.case.uuid:{case_uuid}"
-    logger.info(query)
+    query = f"\nfmu.case.uuid:{case_uuid}\n"
+    logger.debug(query)
     selector = "fmu.iteration.name"
     bucket_name = selector + ".keyword"
     results = sumo.get(
@@ -155,6 +156,7 @@ def query_for_name_and_tags(sumo: SumoClient, case_uuid: str, iteration: str):
     Returns:
         dict: the results
     """
+    logger = init_logging(__name__ + ".query_for_name_and_tags")
     query = {
         "query": {
             "bool": {
@@ -168,25 +170,26 @@ def query_for_name_and_tags(sumo: SumoClient, case_uuid: str, iteration: str):
         },
         "aggs": {
             "table": {
-                "terms": {"field": "data.name.keyword", "size": 10},
+                "terms": {"field": "data.name.keyword", "size": 100},
                 "aggs": {
-                    "tagname": {"terms": {"field": "data.tagname.keyword", "size": 10}}
+                    "tagname": {"terms": {"field": "data.tagname.keyword", "size": 100}}
                 },
             }
         },
         "size": 0,
     }
+    logger.debug("\nSubmitting query for tags: %s\n", query)
     results = sumo.post("/search", json=query).json()
-    print(results)
-    print("---")
+    logger.debug("\nQuery results\n %s", results)
+
     name_with_tags = {}
     for hit in results["aggregations"]["table"]["buckets"]:
-        print(hit["key"])
+        logger.debug(hit["key"])
         name = hit["key"]
         name_with_tags[name] = name_with_tags.get(name, [])
         for taghit in hit["tagname"]["buckets"]:
             name_with_tags[name].append(taghit["key"])
-    print(name_with_tags)
+    logger.info("These are the names and tags:\n%s", name_with_tags)
     return name_with_tags
 
 
@@ -225,8 +228,8 @@ def query_sumo(
         + f"AND data.content:{content} AND fmu.iteration.name:'{iteration}' AND class:table "
         + "AND NOT fmu.aggregation.operation:*"
     )
-    logger.info("This is the query %s \n", query)
-    query_results = sumo.get(path="/search", query=query, size=1000)
+    logger.debug("Query for one specific table: \n%s", query)
+    query_results = sumo.get(path="/search", query=query, size=100)
     return query_results
 
 
@@ -387,10 +390,14 @@ class MetadataSet:
         returns agg_metadata (dict): one valid metadata file to be used for
                                      aggregations to come
         """
+        logger = init_logging(__name__ + ".base_meta")
         agg_metadata = convert_metadata(
             metadata, self.real_ids, self.parameter_dict, self.table_index
         )
         self._table_index = agg_metadata["data"]["table_index"]
+
+        logger.debug("--\n Table index is: %s\n--------", self._table_index)
+
         return agg_metadata
 
 
@@ -565,7 +572,7 @@ def make_stat_aggregations(
     logger  = init_logging(__name__ + ".table_to_bytes")st): what aggregations to process
     """
     logger = init_logging(__name__ + ".make_stat_aggregations")
-    logger.info("Running with %s cpus", os.cpu_count())
+    logger.debug("Running with %s cpus", os.cpu_count())
     aggdict = {"mean": "mean", "min": "min", "max": "max", "p10": p10, "p90": p90}
     stat_input = []
     for col_name, table in table_dict.items():
@@ -593,10 +600,8 @@ def make_stat_aggregations(
                 for aggname, aggfunc in aggdict.items()
             ]
         )
-    # for s_in in stat_input:
-    #     print(s_in)
-    # exit()
-    logger.info("Submitting %s tasks to multprocessing", len(stat_input))
+
+    logger.debug("Submitting %s tasks to multprocessing", len(stat_input))
 
     stats = pa.Table.from_arrays(pa.array([]))
     with get_context("spawn").Pool() as pool:
@@ -618,7 +623,7 @@ def prepare_object_launch(meta: dict, table, name, operation):
     md5 = md5sum(byte_string)
     full_meta = deepcopy(meta)
     parent = full_meta["data"]["name"]
-    logger.info("Name prior to change: %s", parent)
+    logger.debug("Name prior to change: %s", parent)
     unique_name = (
         parent
         + f"--{name}--{tag}--{operation}--"
@@ -636,7 +641,7 @@ def prepare_object_launch(meta: dict, table, name, operation):
     full_meta["display"]["name"] = name
     full_meta["file"]["relative_path"] = unique_name
     logger.debug("Metadata %s", full_meta)
-    logger.info("Object %s ready for launch", unique_name)
+    logger.debug("Object %s ready for launch", unique_name)
     return byte_string, full_meta
 
 
@@ -724,7 +729,7 @@ def upload_stats(
     """
     logger = init_logging(__name__ + ".upload_stats")
     tasks = []
-    logger.info("%s tables to upload", len(stat_input))
+    logger.debug("%s tables to upload", len(stat_input))
 
     for item in stat_input:
         operation, table = item
@@ -774,7 +779,7 @@ async def extract_and_upload(
     count = 0
     neccessaries = table_index + ["REAL"]
     unneccessaries = ["YEARS", "SECONDS", "ENSEMBLE"]
-    logger.info("This is the index to keep %s", neccessaries)
+    logger.debug("This is the index to keep %s", neccessaries)
     # task scheduler
     tasks = []
     table_dict = {}
@@ -813,9 +818,9 @@ async def extract_and_upload(
         )
     )
 
-    logger.info("Tasks to run %s ", len(tasks))
+    logger.debug("Tasks to run %s ", len(tasks))
     await asyncio.gather(*tasks)
-    logger.info("%s objects produced", count * 6 + 2)
+    logger.debug("%s objects produced", count * 6 + 2)
 
 
 def convert_metadata(

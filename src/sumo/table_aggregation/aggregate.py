@@ -27,6 +27,7 @@ class TableAggregator:
         tag (str): name of tag for table
         token (str): authentication token
         """
+        self._logger = ut.init_logging(__file__ + ".TableAggregator")
         sumo_env = kwargs.get("sumo_env", "prod")
         self._sumo = SumoClient(sumo_env, token)
         self._case_identifier = ut.return_uuid(self._sumo, case_identifier)
@@ -117,6 +118,7 @@ class TableAggregator:
             aggregated (pa.Table): aggregated results
         """
         self._aggregated = aggregated
+        self._logger.info("Aggregated results %s", aggregated)
 
     @ut.timethis("aggregation")
     def aggregate(self):
@@ -127,7 +129,7 @@ class TableAggregator:
             )
         else:
             self.aggregated = None
-            print("No aggregation will be done, no table index!!")
+            self._logger.warning("No aggregation will be done, no table index!!")
 
     @ut.timethis("upload")
     def upload(self):
@@ -164,6 +166,7 @@ class AggregationRunner:
             uuid (str): the uuid of the case
             env (str, optional): the name of the sumo environment for the case, default prod
         """
+        self._logger = ut.init_logging(__name__ + ".AggregationRunner")
         self._env = env
         self._uuid = uuid
         self._sumo = SumoClient(env)
@@ -192,9 +195,20 @@ class AggregationRunner:
         iterations = ut.query_sumo_iterations(self._sumo, self.uuid)
         for iter_name in iterations:
             names_w_tags = ut.query_for_name_and_tags(self._sumo, self.uuid, iter_name)
+
             for name, tag_list in names_w_tags.items():
+                self._logger.info("\nData.name: %s", name)
                 for tag in tag_list:
+                    self._logger.info("  data.tagname: %s", tag)
+                    if tag not in ["summary", "vol"]:
+                        self._logger.warning("No functionality for %s yet", tag)
+                        continue
                     aggregator = TableAggregator(
-                        self._uuid, name, tag, iter_name, "*", sumo_env=self._env
+                        self._uuid,
+                        name,
+                        tag,
+                        iter_name,
+                        "*",
+                        sumo_env=self._env,
                     )
                     aggregator.run()
