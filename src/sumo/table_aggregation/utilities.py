@@ -516,7 +516,7 @@ async def aggregate_arrow(
         aggregated.append(
             call_parallel(loop, None, reconstruct_table, object_id, real_nr, sumo)
         )
-    aggregated = pa.concat_tables(await asyncio.gather(*aggregated))
+    aggregated = pa.concat_tables(await asyncio.gather(*aggregated), promote=True)
     return aggregated
 
 
@@ -589,6 +589,9 @@ def make_stat_aggregations(
                 ignore_metadata=True,
             )
         )
+        if frame[col_name].dtype == object:
+            logger.debug("%s is not numeric, will not permform stats", col_name)
+            continue
         logger.debug(
             "Columns after conversion to pandas df %s (size %s)",
             frame.columns,

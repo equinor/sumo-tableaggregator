@@ -200,9 +200,6 @@ class AggregationRunner:
                 self._logger.info("\nData.name: %s", name)
                 for tag in tag_list:
                     self._logger.info("  data.tagname: %s", tag)
-                    if tag not in ["summary", "vol"]:
-                        self._logger.warning("No functionality for %s yet", tag)
-                        continue
                     aggregator = TableAggregator(
                         self._uuid,
                         name,
