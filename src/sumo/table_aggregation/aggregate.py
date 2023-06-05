@@ -1,4 +1,5 @@
 """Contains classes for aggregation of tables"""
+import warnings
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
@@ -118,12 +119,13 @@ class TableAggregator:
             aggregated (pa.Table): aggregated results
         """
         self._aggregated = aggregated
-        self._logger.info("Aggregated results %s", aggregated)
+        # self._logger.info("Aggregated results %s", aggregated)
 
     @ut.timethis("aggregation")
     def aggregate(self):
         """Aggregate objects over tables per real stored in sumo"""
-        if self.table_index is not None:
+        if (self.table_index is not None) and (len(self.table_index) > 0):
+            # self.aggregated = None
             self.aggregated = self.loop.run_until_complete(
                 ut.aggregate_arrow(self.object_ids, self.sumo, self.loop)
             )
@@ -148,7 +150,7 @@ class TableAggregator:
                 )
             )
         else:
-            print("No aggregation in place, so no upload will be done!!")
+            warnings.warn("No aggregation in place, so no upload will be done!!")
 
     def run(self):
         """Run aggregation and upload"""

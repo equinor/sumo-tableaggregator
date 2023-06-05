@@ -1,7 +1,10 @@
 """Utils for table aggregation"""
 import os
+import base64
+import json
 import sys
 import time
+from datetime import datetime
 import logging
 import warnings
 import hashlib
@@ -51,6 +54,68 @@ def init_logging(name: str) -> logging.Logger:
     logger = logging.getLogger(name)
     logger.addHandler(logging.NullHandler())
     return logger
+
+
+def get_expiry_time(sumo: SumoClient) -> int:
+    """Get expiry time from sumo client
+
+    Args:
+        sumo (SumoClient): The activated client
+
+    Returns:
+        int: time since epoch in seconds
+    """
+    logger = init_logging(__name__ + ".get_expiry_time")
+    token_parts = sumo._retrieve_token().split(".")
+    body = json.loads(base64.b64decode(token_parts[1]).decode(encoding="utf-8"))
+
+    expiry_time = body["exp"]
+    strftime = datetime.fromtimestamp(expiry_time).strftime("%Y-%m-%d %H:%M:%S")
+    logger.debug("Token expires at %s", strftime)
+    return expiry_time
+
+
+def find_env(url):
+    """Return sumo environment
+
+    Args:
+        url (str): the base url of sumo client
+
+    Returns:
+        str: the name of environments
+    """
+    print(url)
+    url_parts = url.split(".")
+    return url_parts[0].split("-")[-1]
+
+
+def check_or_refresh_token(sumo):
+    """Checks whether token is about to expire
+
+    Args:
+        sumo (SumoClient): the client to check against
+
+    Raises:
+        TimeoutError: if the token has expired
+
+    Returns:
+        sumo: _description_
+    """
+    logger = init_logging(__name__ + ".check_or_refresh_token")
+    expiry_time = get_expiry_time(sumo)
+    current_time = time.time()
+    lim_in_min = 10
+    limit = (expiry_time - current_time) / (60 * lim_in_min)
+    logger.debug("%s to go ", f"{limit: 3.1f}")
+    if limit < 0:
+        logger.critical("Oh no too late! No token")
+        raise TimeoutError("To late!!!")
+    if limit < 2:
+        logger.info("Refreshing token")
+        sumo = SumoClient(find_env(sumo.base_url))
+    else:
+        logger.debug("No worries here")
+    return sumo
 
 
 def md5sum(bytes_string: bytes) -> str:
@@ -135,7 +200,7 @@ def query_sumo_iterations(sumo: SumoClient, case_uuid: str) -> list:
     results = sumo.get(
         path="/search",
         query=query,
-        size=1,
+        size=0,
         select=selector,
         buckets=bucket_name,
     )
@@ -322,7 +387,7 @@ def arrow_to_table(blob_object) -> pa.Table:
             table = feather.read_table(pa.BufferReader(blob_object))
         except pa.lib.ArrowInvalid:
             table = pa.Table.from_pandas(pd.read_csv(BytesIO(blob_object)))
-    logger.debug("Returning table with columns %s", table.column_names)
+    logger.debug("Returning table with %s columns", len(table.column_names))
     return table
 
 
@@ -439,6 +504,9 @@ def split_results_and_meta(results: list, **kwargs: dict) -> tuple:
 
         blob_ids[name] = result["_id"]
     if len(col_set) != 1:
+        logger.debug("Several sets of columns %s see difference:", len(col_set))
+        for sub_set in col_set:
+            logger.debug(sub_set)
         raise ValueError(
             "Whooa! Something severly wrong: nr of columns varies\n"
             "between individual realisations over your iteration\n"
@@ -497,7 +565,7 @@ def reconstruct_table(object_id: str, real_nr: str, sumo: SumoClient) -> pa.Tabl
     real_table = get_object(object_id, sumo)
     rows = real_table.shape[0]
     real_table = real_table.add_column(0, "REAL", pa.array([np.int16(real_nr)] * rows))
-    logger.debug("Table created %s", real_table)
+    logger.debug("Table created %s", type(real_table))
     return real_table
 
 
@@ -550,11 +618,11 @@ def do_stats(frame, index, col_name, aggfunc, aggname):
     """
     logger = init_logging(__name__ + ".do_stats")
     # frame = table.to_pandas()
-    logger.debug("Columns prior to groupby: %s", frame.columns)
+    logger.debug("Nr of columns prior to groupby: %s", len(frame.columns))
     stat = frame.groupby(index)[col_name].agg(aggfunc).to_frame().reset_index()
     table = pa.Table.from_pandas(stat)
     output = (aggname, table)
-    logger.debug("%s %s", output[0], output[1].column_names)
+    logger.debug("%s %s", output[0], len(output[1].column_names))
     return output
 
 
@@ -583,7 +651,8 @@ def make_stat_aggregations(
             table.column_names,
             table.shape,
         )
-        logger.debug(table.schema)
+        logger.debug("----converting to pandas---")
+        # logger.debug(table.schema)
         frame = deepcopy(
             table.to_pandas(
                 ignore_metadata=True,
@@ -593,8 +662,8 @@ def make_stat_aggregations(
             logger.debug("%s is not numeric, will not permform stats", col_name)
             continue
         logger.debug(
-            "Columns after conversion to pandas df %s (size %s)",
-            frame.columns,
+            "Nr of columns after conversion to pandas df %s (shape %s)",
+            len(frame.columns),
             frame.shape,
         )
         stat_input.extend(
@@ -620,7 +689,7 @@ def prepare_object_launch(meta: dict, table, name, operation):
     columns (list): the column names in the frame
     """
     logger = init_logging(__name__ + ".complete_meta")
-    logger.debug("Preparing with data source %s", table)
+    logger.debug("Preparing with data source %s", type(table))
     byte_string = table_to_bytes(table)
     tag = meta["data"]["tagname"]
     md5 = md5sum(byte_string)
@@ -682,6 +751,7 @@ def upload_table(
         operation (str): operation type
 
     """
+    sumo = check_or_refresh_token(sumo)
     logger = init_logging(__name__ + ".upload_table")
     logger.debug("Uploading %s-%s", name, operation)
     logger.debug("Columns in table %s", table.column_names)
@@ -699,8 +769,10 @@ def upload_table(
             rsp_code = response.status_code
             logger.debug("response meta: %s", rsp_code)
         except Exception:
-            exp_type, _, _ = sys.exc_info()
-            logger.debug("Exception %s while uploading metadata", str(exp_type))
+            exp_type, exp, _ = sys.exc_info()
+            logger.debug(
+                "Exception %s while uploading metadata (%s)", exp, str(exp_type)
+            )
 
     blob_url = response.json().get("blob_url")
     rsp_code = "0"
@@ -710,8 +782,10 @@ def upload_table(
             rsp_code = response.status_code
             logger.debug("Response blob %s", rsp_code)
         except Exception:
-            exp_type, _, _ = sys.exc_info()
-            logger.debug("Exception %s while uploading metadata", str(exp_type))
+            exp_type, exp, _ = sys.exc_info()
+            logger.debug(
+                "Exception %s while uploading metadata (%s)", exp, str(exp_type)
+            )
 
 
 def upload_stats(
@@ -793,7 +867,7 @@ async def extract_and_upload(
         keep_cols = neccessaries + [col_name]
         logger.debug("Columns to pass through %s", keep_cols)
         export_frame = table.select(keep_cols)
-        table_dict[col_name] = export_frame
+        # table_dict[col_name] = export_frame
         tasks.append(
             call_parallel(
                 loop,
@@ -808,18 +882,18 @@ async def extract_and_upload(
             )
         )
         count += 1
-    logger.debug("Submitting: %s", table_dict)
+    logger.debug("Submitting: %s additional tasks", len(table_dict.keys()))
 
-    tasks.extend(
-        upload_stats(
-            sumo,
-            parent_id,
-            make_stat_aggregations(table_dict, table_index),
-            meta_stub,
-            loop,
-            executor,
-        )
-    )
+    # tasks.extend(
+    # upload_stats(
+    # sumo,
+    # parent_id,
+    # make_stat_aggregations(table_dict, table_index),
+    # meta_stub,
+    # loop,
+    # executor,
+    # )
+    # )
 
     logger.debug("Tasks to run %s ", len(tasks))
     await asyncio.gather(*tasks)
