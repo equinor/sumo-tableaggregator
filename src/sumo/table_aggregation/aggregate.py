@@ -127,7 +127,12 @@ class TableAggregator:
         if (self.table_index is not None) and (len(self.table_index) > 0):
             # self.aggregated = None
             self.aggregated = self.loop.run_until_complete(
-                ut.aggregate_arrow(self.object_ids, self.sumo, self.loop)
+                ut.aggregate_arrow(
+                    self.object_ids,
+                    self.sumo,
+                    self.base_meta["data"]["spec"]["columns"],
+                    self.loop,
+                )
             )
         else:
             self.aggregated = None
@@ -202,7 +207,7 @@ class AggregationRunner:
                 self._logger.info("\nData.name: %s", name)
                 for tag in tag_list:
                     self._logger.info("  data.tagname: %s", tag)
-                    if tag not in ["pillars"]:
+                    if tag not in ["satfunc", "trans", "nnc", "vfp", "gruptree"]:
                         print("Skipping ", tag)
                         continue
                     aggregator = TableAggregator(

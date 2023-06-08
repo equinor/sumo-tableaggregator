@@ -110,7 +110,7 @@ def check_or_refresh_token(sumo):
     if limit < 0:
         logger.critical("Oh no too late! No token")
         raise TimeoutError("To late!!!")
-    if limit < 2:
+    if limit < 10:
         logger.info("Refreshing token")
         sumo = SumoClient(find_env(sumo.base_url))
     else:
@@ -265,6 +265,7 @@ def query_sumo(
     tag: str,
     iteration: str,
     content: str,
+    search_after=None,
 ) -> dict:
     """Query for given table type
 
@@ -294,7 +295,17 @@ def query_sumo(
         + "AND NOT fmu.aggregation.operation:*"
     )
     logger.debug("Query for one specific table: \n%s", query)
-    query_results = sumo.get(path="/search", query=query, size=100)
+    if search_after is None:
+        query_results = sumo.get(path="/search", query=query, sort="_doc:asc", size=100)
+    else:
+        query_results = sumo.get(
+            path="/search",
+            query=query,
+            sort="_doc:asc",
+            size=100,
+            search_after=search_after,
+        )
+
     return query_results
 
 
@@ -401,6 +412,8 @@ class MetadataSet:
         self._real_ids = set()
         self._uuids = set()
         self._table_index = table_index
+        self._columns = ()
+        self._logger = init_logging(__name__ + ".MetadataSet")
 
     @property
     def parameter_dict(self) -> dict:
@@ -425,6 +438,48 @@ class MetadataSet:
             list: the table index
         """
         return self._table_index
+
+    @property
+    def agg_columns(self):
+        """Return columns representing all realizations
+
+        Returns:
+            list: list of all columns in specific table
+        """
+        return self._columns
+
+    @agg_columns.setter
+    def agg_columns(self, columns):
+        self._columns = columns
+
+    def resolve_col_conflicts(self, columns, realnr):
+        """Check if columns for specific real matches the other reals
+
+        Args:
+            columns (list): list of cols for specific objecty
+            realnr (int): realization nr
+        """
+        if (len(self._columns) > 0) & (len(self._columns) != len(columns)):
+            self._logger.info("Need to resolve columns")
+            if len(self.agg_columns) < len(columns):
+                first = columns
+                second = self.agg_columns
+            else:
+                first = self.agg_columns
+                second = columns
+            diff = [col_name for col_name in first if col_name not in second]
+            if len(diff) > 0:
+                mess = (
+                    f"This/these columns are not in all reals {diff}"
+                    + f", something is different with real {realnr}"
+                )
+                # warnings.warn(mess)
+                self._logger.info(mess)
+
+            self.agg_columns = first
+        else:
+            self._columns = columns
+            self._logger.info("Columns are good")
 
     def aggid(self) -> str:
         """Return the hash of the sum of all the sorted(uuids)"""
@@ -459,6 +514,7 @@ class MetadataSet:
         agg_metadata = convert_metadata(
             metadata, self.real_ids, self.parameter_dict, self.table_index
         )
+        agg_metadata["data"]["spec"]["columns"] = self.agg_columns
         self._table_index = agg_metadata["data"]["table_index"]
 
         logger.debug("--\n Table index is: %s\n--------", self._table_index)
@@ -485,32 +541,34 @@ def split_results_and_meta(results: list, **kwargs: dict) -> tuple:
     logger = init_logging(__name__ + ".split_result_and_meta")
     parent_id = get_parent_id(results[0])
     logger.debug("Parent id %s", parent_id)
-    col_set = set()
+    col_lengths = set()
     meta = MetadataSet(kwargs.get("table_index", None))
     blob_ids = {}
+
     for result in results:
         real_meta = result["_source"]
-        col_set.add(len(real_meta["data"]["spec"]["columns"]))
+        found_cols = real_meta["data"]["spec"]["columns"]
+        col_lengths.add(len(found_cols))
         try:
             real = real_meta["fmu"].pop("realization")
-            name = real["id"]
+            realnr = real["id"]
         except KeyError:
             logger.warning("No realization in result, already aggregation?")
+            continue
+        meta.resolve_col_conflicts(found_cols, realnr)
         try:
-            meta.add_realisation(name, real["parameters"])
+            meta.add_realisation(realnr, real["parameters"])
         except KeyError:
-            meta.add_realisation(name, [])
+            meta.add_realisation(realnr, [])
             logger.warning("There is no parameter key in meta")
 
-        blob_ids[name] = result["_id"]
-    if len(col_set) != 1:
-        logger.debug("Several sets of columns %s see difference:", len(col_set))
-        for sub_set in col_set:
-            logger.debug(sub_set)
-        raise ValueError(
-            "Whooa! Something severly wrong: nr of columns varies\n"
-            "between individual realisations over your iteration\n"
-            "This must be fixed before table aggregation is possible"
+        blob_ids[realnr] = result["_id"]
+    logger.debug(col_lengths)
+    if len(col_lengths) != 1:
+        logger.warning(
+            "Several sets of columns (%s) see difference in lengths: \n%s",
+            len(col_lengths),
+            col_lengths,
         )
 
     agg_meta = meta.base_meta(real_meta)
@@ -537,6 +595,7 @@ def get_blob_ids_w_metadata(query_results: dict, **kwargs: dict) -> tuple:
 
     logger.debug(" Total number of hits existing %s", total_count)
     hits = query_results["hits"]["hits"]
+
     logger.debug("hits actually contained in request: %s", len(hits))
     return_count = len(hits)
     if return_count < total_count:
@@ -546,16 +605,24 @@ def get_blob_ids_w_metadata(query_results: dict, **kwargs: dict) -> tuple:
             + f"the query with size set to {total_count}"
         )
         warnings.warn(message)
+    print("---------------")
+    print(hits[-1]["sort"])
+    print("---------------")
+    exit()
     return split_results_and_meta(hits, **kwargs)
 
 
-def reconstruct_table(object_id: str, real_nr: str, sumo: SumoClient) -> pa.Table:
+def reconstruct_table(
+    object_id: str, real_nr: str, sumo: SumoClient, required: list
+) -> pa.Table:
     """Reconstruct pa.Table from sumo object id
 
     Args:
         object_id (str): the object to fetch
         real_nr (str): the real nr of the object
         sumo (SumoClient): initialized sumo client
+        required (list): list of columns that need to be in table
+
 
     Returns:
         pa.Table: The table
@@ -564,26 +631,42 @@ def reconstruct_table(object_id: str, real_nr: str, sumo: SumoClient) -> pa.Tabl
     logger.debug("Real %s", real_nr)
     real_table = get_object(object_id, sumo)
     rows = real_table.shape[0]
+
     real_table = real_table.add_column(0, "REAL", pa.array([np.int16(real_nr)] * rows))
+    missing = [
+        col_name for col_name in required if col_name not in real_table.column_names
+    ]
+    if len(missing):
+        logger.info("Real: %s, missing these columns %s", real_nr, missing)
+    for miss in missing:
+        real_table = real_table.add_column(0, miss, pa.array([None] * rows))
     logger.debug("Table created %s", type(real_table))
-    return real_table
+    # Sort to ensure that table has cols in same order even
+    # when missing cols occur
+
+    return real_table.select(sorted(real_table.column_names))
 
 
 async def aggregate_arrow(
-    object_ids: Dict[str, str], sumo: SumoClient, loop
+    object_ids: Dict[str, str], sumo: SumoClient, required, loop
 ) -> pa.Table:
     """Aggregate the individual objects into one large pyarrow table
     args:
     object_ids (dict): key is real nr, value is object id
     sumo (SumoClient): initialized sumo client
+    required (list): list of columns that need to be in table
     loop (asyncio.event_loop)
     returns: pa.Table: the aggregated results
     """
+    logger = init_logging(__name__ + ".aggregate_arrow")
     aggregated = []
     for real_nr, object_id in object_ids.items():
         aggregated.append(
-            call_parallel(loop, None, reconstruct_table, object_id, real_nr, sumo)
+            call_parallel(
+                loop, None, reconstruct_table, object_id, real_nr, sumo, required
+            )
         )
+    logger.info("Ready for action!")
     aggregated = pa.concat_tables(await asyncio.gather(*aggregated), promote=True)
     return aggregated
 
@@ -712,6 +795,10 @@ def prepare_object_launch(meta: dict, table, name, operation):
     # full_meta["data"]["name"] = name
     full_meta["display"]["name"] = name
     full_meta["file"]["relative_path"] = unique_name
+    size = sys.getsizeof(full_meta)
+    logger.debug("Size of dict: \n%s\n", size)
+    if size / (1024 * 1024) > 2:
+        full_meta["data"]["table_index_values"] = []
     logger.debug("Metadata %s", full_meta)
     logger.debug("Object %s ready for launch", unique_name)
     return byte_string, full_meta
@@ -767,7 +854,7 @@ def upload_table(
         try:
             response = sumo.post(path=path, json=meta)
             rsp_code = response.status_code
-            logger.debug("response meta: %s", rsp_code)
+            logger.info("response meta: %s", rsp_code)
         except Exception:
             exp_type, exp, _ = sys.exc_info()
             logger.debug(
@@ -780,7 +867,7 @@ def upload_table(
         try:
             response = sumo.blob_client.upload_blob(blob=byte_string, url=blob_url)
             rsp_code = response.status_code
-            logger.debug("Response blob %s", rsp_code)
+            logger.info("Response blob %s", rsp_code)
         except Exception:
             exp_type, exp, _ = sys.exc_info()
             logger.debug(
