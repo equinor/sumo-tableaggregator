@@ -17,7 +17,7 @@ class TableAggregator:
         name: str,
         tag: str,
         iteration: str,
-        content: str,
+        content,
         token: str = None,
         **kwargs
     ):
@@ -207,7 +207,7 @@ class AggregationRunner:
                 self._logger.info("\nData.name: %s", name)
                 for tag in tag_list:
                     self._logger.info("  data.tagname: %s", tag)
-                    if tag not in ["satfunc", "trans", "nnc", "vfp", "gruptree"]:
+                    if tag not in ["gruptree"]:
                         print("Skipping ", tag)
                         continue
                     aggregator = TableAggregator(

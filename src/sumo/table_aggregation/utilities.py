@@ -112,7 +112,8 @@ def check_or_refresh_token(sumo):
         raise TimeoutError("To late!!!")
     if limit < 10:
         logger.info("Refreshing token")
-        sumo = SumoClient(find_env(sumo.base_url))
+        sumo.auth.get_token()
+        # sumo = SumoClient(find_env(sumo.base_url))
     else:
         logger.debug("No worries here")
     return sumo
@@ -182,6 +183,22 @@ def query_for_sumo_id(sumo: SumoClient, case_name: str) -> str:
     return unique_id
 
 
+def get_buckets(agg_results, selector):
+    """Fetch unique combinations in aggregated results
+
+    Args:
+        agg_results (dict): dict of results["aggregations"]
+        selector (str): name of buckets
+
+    Returns:
+        list: list of results
+    """
+    print("------------------------")
+    print(agg_results)
+    agg_list = [bucket["key"] for bucket in agg_results[selector]["buckets"]]
+    return agg_list
+
+
 def query_sumo_iterations(sumo: SumoClient, case_uuid: str) -> list:
     """Qeury for iteration names
 
@@ -204,9 +221,7 @@ def query_sumo_iterations(sumo: SumoClient, case_uuid: str) -> list:
         select=selector,
         buckets=bucket_name,
     )
-    iterations = [
-        bucket["key"] for bucket in results["aggregations"][bucket_name]["buckets"]
-    ]
+    iterations = get_buckets(results["aggregations"], bucket_name)
     return iterations
 
 
@@ -265,6 +280,7 @@ def query_sumo(
     tag: str,
     iteration: str,
     content: str,
+    pit: str,
     search_after=None,
 ) -> dict:
     """Query for given table type
@@ -289,24 +305,63 @@ def query_sumo(
         iteration,
         content,
     )
+    # query = {
+    # "query": {
+    # "bool": {
+    # "must": [
+    # {"term": {"_sumo.parent_object.keyword": {"value": case_uuid}}},
+    # {"term": {"data.name.keyword": {"value": name}}},
+    # {"term": {"data.tagname.keyword": {"value": tag}}},
+    # {"term": {"class.keyword": {"value": "table"}}},
+    # {"term": {"fmu.iteration.name.keyword": {"value": iteration}}},
+    # ],
+    # "must_not": [{"exists": {"field": "fmu.aggregation"}}],
+    # }
+    # },
+    # "aggs": {
+    # "checksum": {
+    # "terms": {"field": "file.checksum_md5.keyword", "size": 100},
+    # # "aggs": {
+    # # "tagname": {"terms": {"field": "data.tagname.keyword", "size": 100}}
+    # # },
+    # }
+    # },
+    # "sort": [{"_doc": {"order": "desc"}}],
+    # "size": 100,
+    # }
+    # logger.info("Query for one specific table: \n%s", query)
+    # if search_after is not None:
+    # query["search_after"] = search_after
+    # logger.info("Need to find more documents, starting at %s", search_after)
+
+    # query_results = sumo.post(path="/search", json=query).json()
     query = (
-        f"fmu.case.uuid:{case_uuid} AND data.name:{name} AND data.tagname:{tag} "
-        + f"AND data.content:{content} AND fmu.iteration.name:'{iteration}' AND class:table "
-        + "AND NOT fmu.aggregation.operation:*"
+        f"class:table AND _sumo.parent_object:{case_uuid}"
+        + f" AND data.name:{name} AND data.tagname:{tag}"
+        + f" AND fmu.iteration.name:{iteration}"
+        + " AND NOT fmu.aggregation.operation:*"
     )
-    logger.debug("Query for one specific table: \n%s", query)
     if search_after is None:
-        query_results = sumo.get(path="/search", query=query, sort="_doc:asc", size=100)
-    else:
         query_results = sumo.get(
             path="/search",
             query=query,
             sort="_doc:asc",
+            pit=pit,
             size=100,
-            search_after=search_after,
+        )
+    else:
+        query_results = sumo.get(
+            path="/search",
+            query=query,
+            size=100,
+            sort="_doc:asc",
+            pit=pit,
+            search_after=json.dumps(search_after),
         )
 
-    return query_results
+    # buckets = get_buckets(query_results["aggregations"], "file.checksum_md5.keyword")
+
+    return query_results  # , buckets
 
 
 def query_for_table(
@@ -315,7 +370,7 @@ def query_for_table(
     name: str,
     tag: str,
     iteration: str,
-    content: str,
+    content,
     **kwargs: dict,
 ) -> tuple:
     """Fetch object id numbers and metadata
@@ -326,7 +381,7 @@ def query_for_table(
         name (str): name of table
         tag (str, optional): tagname of table. Defaults to "".
         iteration (str): iteration number
-        content (str, optional): content of table. Defaults to "timeseries".
+
 
     Raises:
         RuntimeError: if no tables found
@@ -344,10 +399,29 @@ def query_for_table(
         iteration,
         content,
     )
-    query_results = query_sumo(sumo, case_uuid, name, tag, iteration, content)
-    if query_results["hits"]["total"]["value"] == 0:
+    pit = sumo.post("/pit", params={"keep-alive": "1m"}).json()["id"]
+    # query_results, buckets = query_sumo(
+    query_results = query_sumo(sumo, case_uuid, name, tag, iteration, content, pit)
+    hits = query_results["hits"]["hits"]
+    # unique_set = set(buckets)
+    total_hits = query_results["hits"]["total"]["value"]
+    if total_hits == 0:
         raise RuntimeError("Query returned with no hits, if you want results: modify!")
-    results = get_blob_ids_w_metadata(query_results, **kwargs)
+
+    while len(hits) < total_hits:
+        query_results, more_buck = query_sumo(
+            sumo, case_uuid, name, tag, iteration, content, pit, hits[-1]["sort"]
+        )
+        hits.extend(query_results["hits"]["hits"])
+        logger.debug("hits actually contained in request: %s", len(hits))
+        unique_set.update(more_buck)
+
+    # if len(unique_set) == 1:
+    # logger.warning(
+    # "Name: %s and tag %s, all objects are equal, will only pass one", name, tag
+    # )
+    # hits = hits[:1]
+    results = get_blob_ids_w_metadata(hits, **kwargs)
     return results
 
 
@@ -581,7 +655,7 @@ def split_results_and_meta(results: list, **kwargs: dict) -> tuple:
     return split_tup
 
 
-def get_blob_ids_w_metadata(query_results: dict, **kwargs: dict) -> tuple:
+def get_blob_ids_w_metadata(hits: list, **kwargs: dict) -> tuple:
     """Get all object ids and metadata for iteration
 
     Args:
@@ -591,24 +665,9 @@ def get_blob_ids_w_metadata(query_results: dict, **kwargs: dict) -> tuple:
         tuple: see under split results_and_meta
     """
     logger = init_logging(__name__ + ".get_blob_ids_w_meta")
-    total_count = query_results["hits"]["total"]["value"]
 
-    logger.debug(" Total number of hits existing %s", total_count)
-    hits = query_results["hits"]["hits"]
+    logger.info("hits actually contained in request: %s", len(hits))
 
-    logger.debug("hits actually contained in request: %s", len(hits))
-    return_count = len(hits)
-    if return_count < total_count:
-        message = (
-            "Your query returned less than the total number of hits\n"
-            + f"({return_count} vs {total_count}). You might wanna rerun \n"
-            + f"the query with size set to {total_count}"
-        )
-        warnings.warn(message)
-    print("---------------")
-    print(hits[-1]["sort"])
-    print("---------------")
-    exit()
     return split_results_and_meta(hits, **kwargs)
 
 
@@ -795,10 +854,11 @@ def prepare_object_launch(meta: dict, table, name, operation):
     # full_meta["data"]["name"] = name
     full_meta["display"]["name"] = name
     full_meta["file"]["relative_path"] = unique_name
-    size = sys.getsizeof(full_meta)
-    logger.debug("Size of dict: \n%s\n", size)
-    if size / (1024 * 1024) > 2:
+    size = sys.getsizeof(full_meta) / (1024 * 1024)
+    logger.info("Size of meta dict: %.2e\n", size)
+    if size > 2:
         full_meta["data"]["table_index_values"] = []
+        full_meta["fmu"]["parameters"] = []
     logger.debug("Metadata %s", full_meta)
     logger.debug("Object %s ready for launch", unique_name)
     return byte_string, full_meta
@@ -847,32 +907,50 @@ def upload_table(
     logger.debug("id of table %s", id(table))
     logger.debug("operation from meta %s", meta["fmu"]["aggregation"])
     logger.debug("cols from meta %s", meta["data"]["spec"]["columns"])
+    meta["data"]["spec"]["columns"] = []
+    meta["fmu"]["iteration"]["parameters"] = {}
     path = f"/objects('{parent_id}')"
     rsp_code = "0"
     success_response = (200, 201)
+    meta_upload = True
     while rsp_code not in success_response:
+        size_of_meta = sys.getsizeof(meta) / (1024 * 1024)
         try:
             response = sumo.post(path=path, json=meta)
             rsp_code = response.status_code
             logger.info("response meta: %s", rsp_code)
-        except Exception:
-            exp_type, exp, _ = sys.exc_info()
-            logger.debug(
-                "Exception %s while uploading metadata (%s)", exp, str(exp_type)
+        except PermanentError:
+            meta_upload = False
+            logger.warning(
+                "Permanent error while uploading metadata, Size of meta %.2e MB",
+                size_of_meta,
             )
+            logger.info(meta)
+            break
 
-    blob_url = response.json().get("blob_url")
-    rsp_code = "0"
-    while rsp_code not in success_response:
-        try:
-            response = sumo.blob_client.upload_blob(blob=byte_string, url=blob_url)
-            rsp_code = response.status_code
-            logger.info("Response blob %s", rsp_code)
         except Exception:
             exp_type, exp, _ = sys.exc_info()
-            logger.debug(
-                "Exception %s while uploading metadata (%s)", exp, str(exp_type)
+            logger.warning(
+                "Exception %s while uploading metadata (%s) (Size: %.2e MB)",
+                exp,
+                str(exp_type),
+                size_of_meta,
             )
+    if meta_upload:
+        blob_url = response.json().get("blob_url")
+        rsp_code = "0"
+        while rsp_code not in success_response:
+            try:
+                response = sumo.blob_client.upload_blob(blob=byte_string, url=blob_url)
+                rsp_code = response.status_code
+                logger.info("Response blob %s", rsp_code)
+            except Exception:
+                exp_type, exp, _ = sys.exc_info()
+                logger.warning(
+                    "Exception %s while uploading metadata (%s)", exp, str(exp_type)
+                )
+    else:
+        logger.error("Cannot upload blob since no meta upload")
 
 
 def upload_stats(
