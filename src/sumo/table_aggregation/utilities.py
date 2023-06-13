@@ -305,6 +305,7 @@ def query_sumo(
         iteration,
         content,
     )
+    buck_term = "file.checksum_md5.keyword"
     # query = {
     # "query": {
     # "bool": {
@@ -348,6 +349,7 @@ def query_sumo(
             sort="_doc:asc",
             pit=pit,
             size=100,
+            buckets=buck_term,
         )
     else:
         query_results = sumo.get(
@@ -357,11 +359,12 @@ def query_sumo(
             sort="_doc:asc",
             pit=pit,
             search_after=json.dumps(search_after),
+            buckets=buck_term,
         )
 
-    # buckets = get_buckets(query_results["aggregations"], "file.checksum_md5.keyword")
+    buckets = get_buckets(query_results["aggregations"], buck_term)
 
-    return query_results  # , buckets
+    return query_results, buckets
 
 
 def query_for_table(
@@ -399,28 +402,30 @@ def query_for_table(
         iteration,
         content,
     )
+    unique_buck = set()
     pit = sumo.post("/pit", params={"keep-alive": "1m"}).json()["id"]
-    # query_results, buckets = query_sumo(
-    query_results = query_sumo(sumo, case_uuid, name, tag, iteration, content, pit)
-    hits = query_results["hits"]["hits"]
-    # unique_set = set(buckets)
+    query_results, buck = query_sumo(
+        sumo, case_uuid, name, tag, iteration, content, pit
+    )
     total_hits = query_results["hits"]["total"]["value"]
     if total_hits == 0:
         raise RuntimeError("Query returned with no hits, if you want results: modify!")
+    hits = query_results["hits"]["hits"]
+    unique_buck.update(buck)
 
     while len(hits) < total_hits:
         query_results, more_buck = query_sumo(
             sumo, case_uuid, name, tag, iteration, content, pit, hits[-1]["sort"]
         )
         hits.extend(query_results["hits"]["hits"])
+        unique_buck.update(more_buck)
         logger.debug("hits actually contained in request: %s", len(hits))
-        unique_set.update(more_buck)
 
-    # if len(unique_set) == 1:
-    # logger.warning(
-    # "Name: %s and tag %s, all objects are equal, will only pass one", name, tag
-    # )
-    # hits = hits[:1]
+    if len(unique_buck) == 1:
+        logger.warning(
+            "Name: %s and tag %s, all objects are equal, will only pass one", name, tag
+        )
+        hits = hits[:1]
     results = get_blob_ids_w_metadata(hits, **kwargs)
     return results
 
