@@ -279,7 +279,6 @@ def query_sumo(
     name: str,
     tag: str,
     iteration: str,
-    content: str,
     pit: str,
     search_after=None,
 ) -> dict:
@@ -290,20 +289,19 @@ def query_sumo(
         case_uuid (str): case uuid
         name (str): name of table
         iteration (str): iteration number
-        tag (str, optional): tagname of table. Defaults to "".
-        content (str): content of table
+        tag (str): tagname of table. Defaults to "".
+        pit (str): id for point in time
 
     Returns:
         dict: query results
     """
     logger = init_logging(__name__ + ".query_sumo")
     logger.debug(
-        "At query: id: %s, name: %s, tag: %s, it: %s, content: %s",
+        "At query: id: %s, name: %s, tag: %s, it: %s",
         case_uuid,
         name,
         tag,
         iteration,
-        content,
     )
     buck_term = "file.checksum_md5.keyword"
     # query = {
@@ -373,7 +371,6 @@ def query_for_table(
     name: str,
     tag: str,
     iteration: str,
-    content,
     **kwargs: dict,
 ) -> tuple:
     """Fetch object id numbers and metadata
@@ -395,18 +392,15 @@ def query_for_table(
     """
     logger = init_logging(__name__ + ".query_for_table")
     logger.debug(
-        "Passing to query: id: %s, name: %s, tag: %s, it: %s, content: %s",
+        "Passing to query: id: %s, name: %s, tag: %s, it: %s",
         case_uuid,
         name,
         tag,
         iteration,
-        content,
     )
     unique_buck = set()
     pit = sumo.post("/pit", params={"keep-alive": "1m"}).json()["id"]
-    query_results, buck = query_sumo(
-        sumo, case_uuid, name, tag, iteration, content, pit
-    )
+    query_results, buck = query_sumo(sumo, case_uuid, name, tag, iteration, pit)
     total_hits = query_results["hits"]["total"]["value"]
     if total_hits == 0:
         raise RuntimeError("Query returned with no hits, if you want results: modify!")
@@ -415,7 +409,7 @@ def query_for_table(
 
     while len(hits) < total_hits:
         query_results, more_buck = query_sumo(
-            sumo, case_uuid, name, tag, iteration, content, pit, hits[-1]["sort"]
+            sumo, case_uuid, name, tag, iteration, pit, hits[-1]["sort"]
         )
         hits.extend(query_results["hits"]["hits"])
         unique_buck.update(more_buck)

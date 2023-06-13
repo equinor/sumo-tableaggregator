@@ -17,7 +17,6 @@ class TableAggregator:
         name: str,
         tag: str,
         iteration: str,
-        content,
         token: str = None,
         **kwargs
     ):
@@ -42,13 +41,7 @@ class TableAggregator:
             self._meta,
             self._table_index,
         ) = ut.query_for_table(
-            self.sumo,
-            self._case_identifier,
-            self._name,
-            tag,
-            self._iteration,
-            content,
-            **kwargs
+            self.sumo, self._case_identifier, self._name, tag, self._iteration, **kwargs
         )
 
     @property
@@ -215,7 +208,6 @@ class AggregationRunner:
                         name,
                         tag,
                         iter_name,
-                        "*",
                         sumo_env=self._env,
                     )
                     aggregator.run()
