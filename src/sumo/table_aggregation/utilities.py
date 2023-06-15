@@ -17,6 +17,7 @@ from io import BytesIO
 import numpy as np
 import pandas as pd
 import pyarrow as pa
+import pyarrow.compute as pc
 from pyarrow import feather
 import pyarrow.parquet as pq
 from sumo.wrapper import SumoClient
@@ -359,7 +360,7 @@ def query_sumo(
             search_after=json.dumps(search_after),
             buckets=buck_term,
         )
-
+    logger.info("Query: %s", query)
     buckets = get_buckets(query_results["aggregations"], buck_term)
 
     return query_results, buckets
@@ -558,23 +559,12 @@ class MetadataSet:
         """Return the hash of the sum of all the sorted(uuids)"""
         return str("".join(sorted(self.uuids)))
 
-    def add_realisation(self, real_nr: int, real_parameters: dict):
-        """Adds parameters from one realisation
+    def add_realisation(self, real_nr: int):
+        """Adds realnr for relevant real
         args:
-        real_parameters (dict): parameters from one realisation
+        real_nr (int):real nr
         """
         self._real_ids.add(real_nr)
-        for name, values in real_parameters.items():
-            if name not in self._parameter_dict:
-                self._parameter_dict[name] = {}
-            try:
-                for sub_name, value in values.items():
-                    if sub_name not in self._parameter_dict[name]:
-                        self._parameter_dict[name][sub_name] = {}
-
-                    self._parameter_dict[name][sub_name][real_nr] = value
-            except AttributeError:
-                self._parameter_dict[name][real_nr] = values
 
     def base_meta(self, metadata: dict) -> dict:
         """Converts one metadata file into aggregated metadata
@@ -629,11 +619,7 @@ def split_results_and_meta(results: list, **kwargs: dict) -> tuple:
             logger.warning("No realization in result, already aggregation?")
             continue
         meta.resolve_col_conflicts(found_cols, realnr)
-        try:
-            meta.add_realisation(realnr, real["parameters"])
-        except KeyError:
-            meta.add_realisation(realnr, [])
-            logger.warning("There is no parameter key in meta")
+        meta.add_realisation(realnr)
 
         blob_ids[realnr] = result["_id"]
     logger.debug(col_lengths)
@@ -844,8 +830,6 @@ def prepare_object_launch(meta: dict, table, name, operation):
     )
     full_meta["file"]["checksum_md5"] = md5
     full_meta["fmu"]["aggregation"]["id"] = uuid_from_string(md5)
-    full_meta["file"]["checksum_md5"] = md5
-    full_meta["fmu"]["aggregation"]["id"] = uuid_from_string(md5)
     full_meta["fmu"]["aggregation"]["operation"] = operation
     full_meta["data"]["spec"]["columns"] = table.column_names
     if operation == "collection":
@@ -855,9 +839,6 @@ def prepare_object_launch(meta: dict, table, name, operation):
     full_meta["file"]["relative_path"] = unique_name
     size = sys.getsizeof(full_meta) / (1024 * 1024)
     logger.info("Size of meta dict: %.2e\n", size)
-    if size > 2:
-        full_meta["data"]["table_index_values"] = []
-        full_meta["fmu"]["parameters"] = []
     logger.debug("Metadata %s", full_meta)
     logger.debug("Object %s ready for launch", unique_name)
     return byte_string, full_meta
@@ -907,7 +888,6 @@ def upload_table(
     logger.debug("operation from meta %s", meta["fmu"]["aggregation"])
     logger.debug("cols from meta %s", meta["data"]["spec"]["columns"])
     meta["data"]["spec"]["columns"] = []
-    meta["fmu"]["iteration"]["parameters"] = {}
     path = f"/objects('{parent_id}')"
     rsp_code = "0"
     success_response = (200, 201)
@@ -948,6 +928,7 @@ def upload_table(
                 logger.warning(
                     "Exception %s while uploading metadata (%s)", exp, str(exp_type)
                 )
+        logger.info(f"%s uploaded", meta["file"]["relative_path"])
     else:
         logger.error("Cannot upload blob since no meta upload")
 
@@ -1010,8 +991,6 @@ async def extract_and_upload(
         meta_stub (dict): a metadata stub to be used for generating metadata for all split results
         loop (asyncio.event_loop): event loop to be used for upload
         executor (ThreadpoolExecutor): Executor for event loop
-        keep_grand_aggregation (bool, optional): Upload the large aggregation as object.
-                                                Defaults to False.
     """
     logger = init_logging(__name__ + ".extract_and_upload")
     logger.debug(
@@ -1022,7 +1001,9 @@ async def extract_and_upload(
     unneccessaries = ["YEARS", "SECONDS", "ENSEMBLE"]
     logger.debug("This is the index to keep %s", neccessaries)
     # task scheduler
-    tasks = []
+    tasks = generate_table_index_values(
+        sumo, parent_id, table, table_index, meta_stub, loop, executor
+    )
     table_dict = {}
     for col_name in table.column_names:
         if col_name in (neccessaries + unneccessaries):
@@ -1067,7 +1048,6 @@ async def extract_and_upload(
 def convert_metadata(
     single_metadata: dict,
     real_ids: list,
-    parameters: dict,
     table_index,
     operation: str = "collection",
 ):
@@ -1075,13 +1055,15 @@ def convert_metadata(
     args:
     single_metadata (dict): one single metadata dict
     real_ids (list): list of realization numbers, needed for metadata
-    parameters (dict): dictionary of dictionaries, with key as global var name
-                       as key, then value being dict with key as real and value
-                       as global var value
     operation (str): what type of operation the aggregation performs
     returns agg_metadata (dict): metadata dict that can be further used for aggregation
     """
     logger = init_logging(__name__ + ".convert_metadata")
+    logger.info(
+        "Table index going in %s, but input index is %s",
+        single_metadata["data"]["table_index"],
+        table_index,
+    )
     agg_metadata = single_metadata.copy()
     try:
         del agg_metadata["_sumo"]
@@ -1093,23 +1075,73 @@ def convert_metadata(
         del agg_metadata["fmu"]["realization"]
     except KeyError:
         logger.debug("No realization part to delete")
-    if table_index is not None:
+    outside_index = False
+    try:
+        outside_index = len(table_index) > 0
+    except TypeError:
+        outside_index = table_index is not None
+    if outside_index:
         agg_metadata["data"]["table_index"] = table_index
     else:
         try:
             table_index = agg_metadata["data"]["table_index"]
         except KeyError:
-            logger.warning("No table index set, will produce no results")
+            logger.warning(
+                "No table index set, will produce no results",
+            )
             agg_metadata["data"]["table_index"] = None
 
     # Adding specific aggregation ones
     agg_metadata["fmu"]["aggregation"] = agg_metadata["fmu"].get("aggregation", {})
     agg_metadata["fmu"]["aggregation"]["operation"] = operation
     agg_metadata["fmu"]["aggregation"]["realization_ids"] = list(real_ids)
-    agg_metadata["fmu"]["iteration"]["parameters"] = parameters
     agg_metadata["fmu"]["context"]["stage"] = "iteration"
     # Since no file on disk, trying without paths
     agg_metadata["file"]["absolute_path"] = ""
     agg_metadata["data"]["spec"]["columns"] = []
+    logger.info("The table index will be %s", agg_metadata["data"]["table_index"])
 
     return agg_metadata
+
+
+def generate_table_index_values(
+    sumo,
+    parent_id,
+    table,
+    table_index,
+    meta_stub,
+    loop,
+    executor,
+):
+    """Que table_index values
+
+    Args:
+        sumo (SumoClient): initialized sumo Client
+        parent_id (str): object id of parent object
+        table (pa.Table): Table to derive indexes from
+        table_index (list)): list of indexes
+        meta_stub (dic): a metadata stub to be used for generating final meta
+        loop (asyncio.event_loop): event loop to be used for upload
+        executor (ThreadpoolExecutor): Executor for event loop
+
+    Returns:
+        list: tasks queued
+    """
+    index_tasks = []
+    for index in table_index:
+        ind_table = pa.Table.from_arrays([pc.unique(table[index])], names=[index])
+        print(ind_table)
+        index_tasks.append(
+            call_parallel(
+                loop,
+                executor,
+                upload_table,
+                sumo,
+                parent_id,
+                ind_table,
+                index,
+                meta_stub,
+                "index",
+            )
+        )
+    return index_tasks
