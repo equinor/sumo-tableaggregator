@@ -755,39 +755,36 @@ def do_stats(frame, index, col_name, aggfunc, aggname):
 
 @timethis("multiprocessing")
 def make_stat_aggregations(
-    table_dict: dict,
+    col_name: str,
+    table: pa.Table,
     table_index: Union[list, str],
     # aggfuncs: list = ("mean", "min", "max", p10, p90),
 ):
-    """Make statistical aggregations from pyarrow dataframe
-    args
-    table (pa.Table): data to process
-    meta_stub (dict): dictionary that is start of creating proper metadata
-    aggfuncs (list): statistical aggregations to include
-    logger  = init_logging(__name__ + ".table_to_bytes")st): what aggregations to process
+    """Return statistical aggregations from pyarrow table
+
+    Args:
+        col_name (str): name of column to perform stats on
+        table (pa.Table): The table to do the stats from
+        table_index (Union[list, str]): name of table index columns
+
+    Returns:
+        tuple: results from statistical calculations
     """
     logger = init_logging(__name__ + ".make_stat_aggregations")
     logger.debug("Running with %s cpus", os.cpu_count())
     aggdict = {"mean": "mean", "min": "min", "max": "max", "p10": p10, "p90": p90}
     stat_input = []
-    for col_name, table in table_dict.items():
-        logger.debug("Calculating statistics on vector %s", col_name)
-        logger.debug("Table index %s", table_index)
-        logger.debug(
-            "Columns before conversion to pandas df %s (size %s)",
-            table.column_names,
-            table.shape,
+
+    logger.debug("----converting to pandas---")
+    # logger.debug(table.schema)
+    frame = deepcopy(
+        table.to_pandas(
+            ignore_metadata=True,
         )
-        logger.debug("----converting to pandas---")
-        # logger.debug(table.schema)
-        frame = deepcopy(
-            table.to_pandas(
-                ignore_metadata=True,
-            )
-        )
-        if frame[col_name].dtype == object:
-            logger.debug("%s is not numeric, will not permform stats", col_name)
-            continue
+    )
+    if frame[col_name].dtype != object:
+        logger.debug("%s is not numeric, will not permform stats", col_name)
+
         logger.debug(
             "Nr of columns after conversion to pandas df %s (shape %s)",
             len(frame.columns),
@@ -800,11 +797,13 @@ def make_stat_aggregations(
             ]
         )
 
-    logger.debug("Submitting %s tasks to multprocessing", len(stat_input))
+        logger.debug("Submitting %s tasks to multprocessing", len(stat_input))
 
-    stats = pa.Table.from_arrays(pa.array([]))
-    with get_context("spawn").Pool() as pool:
-        stats = pool.starmap(do_stats, stat_input)
+        stats = pa.Table.from_arrays(pa.array([]))
+        with get_context("spawn").Pool() as pool:
+            stats = pool.starmap(do_stats, stat_input)
+    else:
+        stats = ()
     return stats
 
 
@@ -1030,7 +1029,7 @@ async def extract_and_upload(
             upload_stats(
                 sumo,
                 parent_id,
-                make_stat_aggregations(table_dict, table_index),
+                make_stat_aggregations(col_name, export_frame, table_index),
                 meta_stub,
                 loop,
                 executor,
