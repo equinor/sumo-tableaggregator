@@ -1004,15 +1004,15 @@ async def extract_and_upload(
     tasks = generate_table_index_values(
         sumo, parent_id, table, table_index, meta_stub, loop, executor
     )
-    table_dict = {}
     for col_name in table.column_names:
         if col_name in (neccessaries + unneccessaries):
             continue
+        table_dict = {}
         logger.debug("Preparing %s", col_name)
         keep_cols = neccessaries + [col_name]
         logger.debug("Columns to pass through %s", keep_cols)
         export_frame = table.select(keep_cols)
-        # table_dict[col_name] = export_frame
+        table_dict[col_name] = export_frame
         tasks.append(
             call_parallel(
                 loop,
@@ -1026,19 +1026,19 @@ async def extract_and_upload(
                 "collection",
             )
         )
+        tasks.extend(
+            upload_stats(
+                sumo,
+                parent_id,
+                make_stat_aggregations(table_dict, table_index),
+                meta_stub,
+                loop,
+                executor,
+            )
+        )
+
         count += 1
     logger.debug("Submitting: %s additional tasks", len(table_dict.keys()))
-
-    # tasks.extend(
-    # upload_stats(
-    # sumo,
-    # parent_id,
-    # make_stat_aggregations(table_dict, table_index),
-    # meta_stub,
-    # loop,
-    # executor,
-    # )
-    # )
 
     logger.debug("Tasks to run %s ", len(tasks))
     await asyncio.gather(*tasks)
