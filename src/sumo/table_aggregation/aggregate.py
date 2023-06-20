@@ -1,4 +1,5 @@
 """Contains classes for aggregation of tables"""
+import warnings
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
@@ -16,7 +17,6 @@ class TableAggregator:
         name: str,
         tag: str,
         iteration: str,
-        content: str,
         token: str = None,
         **kwargs
     ):
@@ -41,13 +41,7 @@ class TableAggregator:
             self._meta,
             self._table_index,
         ) = ut.query_for_table(
-            self.sumo,
-            self._case_identifier,
-            self._name,
-            tag,
-            self._iteration,
-            content,
-            **kwargs
+            self.sumo, self._case_identifier, self._name, tag, self._iteration, **kwargs
         )
 
     @property
@@ -118,18 +112,26 @@ class TableAggregator:
             aggregated (pa.Table): aggregated results
         """
         self._aggregated = aggregated
-        self._logger.info("Aggregated results %s", aggregated)
+        # self._logger.info("Aggregated results %s", aggregated)
 
     @ut.timethis("aggregation")
     def aggregate(self):
         """Aggregate objects over tables per real stored in sumo"""
-        if self.table_index is not None:
+        if (self.table_index is not None) and (len(self.table_index) > 0):
+            # self.aggregated = None
             self.aggregated = self.loop.run_until_complete(
-                ut.aggregate_arrow(self.object_ids, self.sumo, self.loop)
+                ut.aggregate_arrow(
+                    self.object_ids,
+                    self.sumo,
+                    self.base_meta["data"]["spec"]["columns"],
+                    self.loop,
+                )
             )
         else:
             self.aggregated = None
-            self._logger.warning("No aggregation will be done, no table index!!")
+            self._logger.warning(
+                "No aggregation will be done, no table index",
+            )
 
     @ut.timethis("upload")
     def upload(self):
@@ -148,7 +150,7 @@ class TableAggregator:
                 )
             )
         else:
-            print("No aggregation in place, so no upload will be done!!")
+            warnings.warn("No aggregation in place, so no upload will be done!!")
 
     def run(self):
         """Run aggregation and upload"""
@@ -200,15 +202,11 @@ class AggregationRunner:
                 self._logger.info("\nData.name: %s", name)
                 for tag in tag_list:
                     self._logger.info("  data.tagname: %s", tag)
-                    if tag not in ["summary", "vol"]:
-                        self._logger.warning("No functionality for %s yet", tag)
-                        continue
                     aggregator = TableAggregator(
                         self._uuid,
                         name,
                         tag,
                         iter_name,
-                        "*",
                         sumo_env=self._env,
                     )
                     aggregator.run()

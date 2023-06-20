@@ -1,7 +1,10 @@
 """Utils for table aggregation"""
 import os
+import base64
+import json
 import sys
 import time
+from datetime import datetime
 import logging
 import warnings
 import hashlib
@@ -14,6 +17,7 @@ from io import BytesIO
 import numpy as np
 import pandas as pd
 import pyarrow as pa
+import pyarrow.compute as pc
 from pyarrow import feather
 import pyarrow.parquet as pq
 from sumo.wrapper import SumoClient
@@ -51,6 +55,70 @@ def init_logging(name: str) -> logging.Logger:
     logger = logging.getLogger(name)
     logger.addHandler(logging.NullHandler())
     return logger
+
+
+def get_expiry_time(sumo: SumoClient) -> int:
+    """Get expiry time from sumo client
+
+    Args:
+        sumo (SumoClient): The activated client
+
+    Returns:
+        int: time since epoch in seconds
+    """
+    logger = init_logging(__name__ + ".get_expiry_time")
+    token_parts = sumo._retrieve_token().split(".")
+    body = json.loads(base64.b64decode(token_parts[1]).decode(encoding="utf-8"))
+
+    expiry_time = body["exp"]
+    strftime = datetime.fromtimestamp(expiry_time).strftime("%Y-%m-%d %H:%M:%S")
+    logger.debug("Token expires at %s", strftime)
+    return expiry_time
+
+
+def find_env(url):
+    """Return sumo environment
+
+    Args:
+        url (str): the base url of sumo client
+
+    Returns:
+        str: the name of environments
+    """
+    logger = init_logging(__name__ + ".find_url")
+    logger.debug("Finding env from url: %s", url)
+    url_parts = url.split(".")
+    return url_parts[0].split("-")[-1]
+
+
+def check_or_refresh_token(sumo):
+    """Checks whether token is about to expire
+
+    Args:
+        sumo (SumoClient): the client to check against
+
+    Raises:
+        TimeoutError: if the token has expired
+
+    Returns:
+        sumo: _description_
+    """
+    logger = init_logging(__name__ + ".check_or_refresh_token")
+    expiry_time = get_expiry_time(sumo)
+    current_time = time.time()
+    lim_in_min = 10
+    limit = (expiry_time - current_time) / (60 * lim_in_min)
+    logger.debug("%s to go ", f"{limit: 3.1f}")
+    if limit < 0:
+        logger.critical("Oh no too late! No token")
+        raise TimeoutError("To late!!!")
+    if limit < 10:
+        logger.info("Refreshing token")
+        sumo.auth.get_token()
+        # sumo = SumoClient(find_env(sumo.base_url))
+    else:
+        logger.debug("No worries here")
+    return sumo
 
 
 def md5sum(bytes_string: bytes) -> str:
@@ -117,6 +185,21 @@ def query_for_sumo_id(sumo: SumoClient, case_name: str) -> str:
     return unique_id
 
 
+def get_buckets(agg_results, selector):
+    """Fetch unique combinations in aggregated results
+
+    Args:
+        agg_results (dict): dict of results["aggregations"]
+        selector (str): name of buckets
+
+    Returns:
+        list: list of results
+    """
+
+    agg_list = [bucket["key"] for bucket in agg_results[selector]["buckets"]]
+    return agg_list
+
+
 def query_sumo_iterations(sumo: SumoClient, case_uuid: str) -> list:
     """Qeury for iteration names
 
@@ -135,13 +218,11 @@ def query_sumo_iterations(sumo: SumoClient, case_uuid: str) -> list:
     results = sumo.get(
         path="/search",
         query=query,
-        size=1,
+        size=0,
         select=selector,
         buckets=bucket_name,
     )
-    iterations = [
-        bucket["key"] for bucket in results["aggregations"][bucket_name]["buckets"]
-    ]
+    iterations = get_buckets(results["aggregations"], bucket_name)
     return iterations
 
 
@@ -199,7 +280,8 @@ def query_sumo(
     name: str,
     tag: str,
     iteration: str,
-    content: str,
+    pit: str,
+    search_after=None,
 ) -> dict:
     """Query for given table type
 
@@ -208,29 +290,50 @@ def query_sumo(
         case_uuid (str): case uuid
         name (str): name of table
         iteration (str): iteration number
-        tag (str, optional): tagname of table. Defaults to "".
-        content (str): content of table
+        tag (str): tagname of table. Defaults to "".
+        pit (str): id for point in time
 
     Returns:
         dict: query results
     """
     logger = init_logging(__name__ + ".query_sumo")
     logger.debug(
-        "At query: id: %s, name: %s, tag: %s, it: %s, content: %s",
+        "At query: id: %s, name: %s, tag: %s, it: %s",
         case_uuid,
         name,
         tag,
         iteration,
-        content,
     )
+    buck_term = "file.checksum_md5.keyword"
     query = (
-        f"fmu.case.uuid:{case_uuid} AND data.name:{name} AND data.tagname:{tag} "
-        + f"AND data.content:{content} AND fmu.iteration.name:'{iteration}' AND class:table "
-        + "AND NOT fmu.aggregation.operation:*"
+        f"class:table AND _sumo.parent_object:{case_uuid}"
+        + f" AND data.name:{name} AND data.tagname:{tag}"
+        + f" AND fmu.iteration.name:{iteration}"
+        + " AND NOT fmu.aggregation.operation:*"
     )
-    logger.debug("Query for one specific table: \n%s", query)
-    query_results = sumo.get(path="/search", query=query, size=100)
-    return query_results
+    if search_after is None:
+        query_results = sumo.get(
+            path="/search",
+            query=query,
+            sort="_doc:asc",
+            pit=pit,
+            size=100,
+            buckets=buck_term,
+        )
+    else:
+        query_results = sumo.get(
+            path="/search",
+            query=query,
+            size=100,
+            sort="_doc:asc",
+            pit=pit,
+            search_after=json.dumps(search_after),
+            buckets=buck_term,
+        )
+    logger.info("Query: %s", query)
+    buckets = get_buckets(query_results["aggregations"], buck_term)
+
+    return query_results, buckets
 
 
 def query_for_table(
@@ -239,7 +342,6 @@ def query_for_table(
     name: str,
     tag: str,
     iteration: str,
-    content: str,
     **kwargs: dict,
 ) -> tuple:
     """Fetch object id numbers and metadata
@@ -250,7 +352,7 @@ def query_for_table(
         name (str): name of table
         tag (str, optional): tagname of table. Defaults to "".
         iteration (str): iteration number
-        content (str, optional): content of table. Defaults to "timeseries".
+
 
     Raises:
         RuntimeError: if no tables found
@@ -261,17 +363,35 @@ def query_for_table(
     """
     logger = init_logging(__name__ + ".query_for_table")
     logger.debug(
-        "Passing to query: id: %s, name: %s, tag: %s, it: %s, content: %s",
+        "Passing to query: id: %s, name: %s, tag: %s, it: %s",
         case_uuid,
         name,
         tag,
         iteration,
-        content,
     )
-    query_results = query_sumo(sumo, case_uuid, name, tag, iteration, content)
-    if query_results["hits"]["total"]["value"] == 0:
+    unique_buck = set()
+    pit = sumo.post("/pit", params={"keep-alive": "1m"}).json()["id"]
+    query_results, buck = query_sumo(sumo, case_uuid, name, tag, iteration, pit)
+    total_hits = query_results["hits"]["total"]["value"]
+    if total_hits == 0:
         raise RuntimeError("Query returned with no hits, if you want results: modify!")
-    results = get_blob_ids_w_metadata(query_results, **kwargs)
+    hits = query_results["hits"]["hits"]
+    unique_buck.update(buck)
+
+    while len(hits) < total_hits:
+        query_results, more_buck = query_sumo(
+            sumo, case_uuid, name, tag, iteration, pit, hits[-1]["sort"]
+        )
+        hits.extend(query_results["hits"]["hits"])
+        unique_buck.update(more_buck)
+        logger.debug("hits actually contained in request: %s", len(hits))
+
+    if len(unique_buck) == 1:
+        logger.warning(
+            "Name: %s and tag %s, all objects are equal, will only pass one", name, tag
+        )
+        hits = hits[:1]
+    results = get_blob_ids_w_metadata(hits, **kwargs)
     return results
 
 
@@ -322,7 +442,7 @@ def arrow_to_table(blob_object) -> pa.Table:
             table = feather.read_table(pa.BufferReader(blob_object))
         except pa.lib.ArrowInvalid:
             table = pa.Table.from_pandas(pd.read_csv(BytesIO(blob_object)))
-    logger.debug("Returning table with columns %s", table.column_names)
+    logger.debug("Returning table with %s columns", len(table.column_names))
     return table
 
 
@@ -336,6 +456,8 @@ class MetadataSet:
         self._real_ids = set()
         self._uuids = set()
         self._table_index = table_index
+        self._columns = ()
+        self._logger = init_logging(__name__ + ".MetadataSet")
 
     @property
     def parameter_dict(self) -> dict:
@@ -361,27 +483,58 @@ class MetadataSet:
         """
         return self._table_index
 
+    @property
+    def agg_columns(self):
+        """Return columns representing all realizations
+
+        Returns:
+            list: list of all columns in specific table
+        """
+        return self._columns
+
+    @agg_columns.setter
+    def agg_columns(self, columns):
+        self._columns = columns
+
+    def resolve_col_conflicts(self, columns, realnr):
+        """Check if columns for specific real matches the other reals
+
+        Args:
+            columns (list): list of cols for specific objecty
+            realnr (int): realization nr
+        """
+        if (len(self._columns) > 0) & (len(self._columns) != len(columns)):
+            self._logger.info("Need to resolve columns")
+            if len(self.agg_columns) < len(columns):
+                first = columns
+                second = self.agg_columns
+            else:
+                first = self.agg_columns
+                second = columns
+            diff = [col_name for col_name in first if col_name not in second]
+            if len(diff) > 0:
+                mess = (
+                    f"This/these columns are not in all reals {diff}"
+                    + f", something is different with real {realnr}"
+                )
+                # warnings.warn(mess)
+                self._logger.info(mess)
+
+            self.agg_columns = first
+        else:
+            self._columns = columns
+            self._logger.info("Columns are good")
+
     def aggid(self) -> str:
         """Return the hash of the sum of all the sorted(uuids)"""
         return str("".join(sorted(self.uuids)))
 
-    def add_realisation(self, real_nr: int, real_parameters: dict):
-        """Adds parameters from one realisation
+    def add_realisation(self, real_nr: int):
+        """Adds realnr for relevant real
         args:
-        real_parameters (dict): parameters from one realisation
+        real_nr (int):real nr
         """
         self._real_ids.add(real_nr)
-        for name, values in real_parameters.items():
-            if name not in self._parameter_dict:
-                self._parameter_dict[name] = {}
-            try:
-                for sub_name, value in values.items():
-                    if sub_name not in self._parameter_dict[name]:
-                        self._parameter_dict[name][sub_name] = {}
-
-                    self._parameter_dict[name][sub_name][real_nr] = value
-            except AttributeError:
-                self._parameter_dict[name][real_nr] = values
 
     def base_meta(self, metadata: dict) -> dict:
         """Converts one metadata file into aggregated metadata
@@ -394,6 +547,7 @@ class MetadataSet:
         agg_metadata = convert_metadata(
             metadata, self.real_ids, self.parameter_dict, self.table_index
         )
+        agg_metadata["data"]["spec"]["columns"] = self.agg_columns
         self._table_index = agg_metadata["data"]["table_index"]
 
         logger.debug("--\n Table index is: %s\n--------", self._table_index)
@@ -420,29 +574,30 @@ def split_results_and_meta(results: list, **kwargs: dict) -> tuple:
     logger = init_logging(__name__ + ".split_result_and_meta")
     parent_id = get_parent_id(results[0])
     logger.debug("Parent id %s", parent_id)
-    col_set = set()
+    col_lengths = set()
     meta = MetadataSet(kwargs.get("table_index", None))
     blob_ids = {}
+
     for result in results:
         real_meta = result["_source"]
-        col_set.add(len(real_meta["data"]["spec"]["columns"]))
+        found_cols = real_meta["data"]["spec"]["columns"]
+        col_lengths.add(len(found_cols))
         try:
             real = real_meta["fmu"].pop("realization")
-            name = real["id"]
+            realnr = real["id"]
         except KeyError:
             logger.warning("No realization in result, already aggregation?")
-        try:
-            meta.add_realisation(name, real["parameters"])
-        except KeyError:
-            meta.add_realisation(name, [])
-            logger.warning("There is no parameter key in meta")
+            continue
+        meta.resolve_col_conflicts(found_cols, realnr)
+        meta.add_realisation(realnr)
 
-        blob_ids[name] = result["_id"]
-    if len(col_set) != 1:
-        raise ValueError(
-            "Whooa! Something severly wrong: nr of columns varies\n"
-            "between individual realisations over your iteration\n"
-            "This must be fixed before table aggregation is possible"
+        blob_ids[realnr] = result["_id"]
+    logger.debug(col_lengths)
+    if len(col_lengths) != 1:
+        logger.warning(
+            "Several sets of columns (%s) see difference in lengths: \n%s",
+            len(col_lengths),
+            col_lengths,
         )
 
     agg_meta = meta.base_meta(real_meta)
@@ -455,7 +610,7 @@ def split_results_and_meta(results: list, **kwargs: dict) -> tuple:
     return split_tup
 
 
-def get_blob_ids_w_metadata(query_results: dict, **kwargs: dict) -> tuple:
+def get_blob_ids_w_metadata(hits: list, **kwargs: dict) -> tuple:
     """Get all object ids and metadata for iteration
 
     Args:
@@ -465,29 +620,23 @@ def get_blob_ids_w_metadata(query_results: dict, **kwargs: dict) -> tuple:
         tuple: see under split results_and_meta
     """
     logger = init_logging(__name__ + ".get_blob_ids_w_meta")
-    total_count = query_results["hits"]["total"]["value"]
 
-    logger.debug(" Total number of hits existing %s", total_count)
-    hits = query_results["hits"]["hits"]
-    logger.debug("hits actually contained in request: %s", len(hits))
-    return_count = len(hits)
-    if return_count < total_count:
-        message = (
-            "Your query returned less than the total number of hits\n"
-            + f"({return_count} vs {total_count}). You might wanna rerun \n"
-            + f"the query with size set to {total_count}"
-        )
-        warnings.warn(message)
+    logger.info("hits actually contained in request: %s", len(hits))
+
     return split_results_and_meta(hits, **kwargs)
 
 
-def reconstruct_table(object_id: str, real_nr: str, sumo: SumoClient) -> pa.Table:
+def reconstruct_table(
+    object_id: str, real_nr: str, sumo: SumoClient, required: list
+) -> pa.Table:
     """Reconstruct pa.Table from sumo object id
 
     Args:
         object_id (str): the object to fetch
         real_nr (str): the real nr of the object
         sumo (SumoClient): initialized sumo client
+        required (list): list of columns that need to be in table
+
 
     Returns:
         pa.Table: The table
@@ -496,27 +645,43 @@ def reconstruct_table(object_id: str, real_nr: str, sumo: SumoClient) -> pa.Tabl
     logger.debug("Real %s", real_nr)
     real_table = get_object(object_id, sumo)
     rows = real_table.shape[0]
+
     real_table = real_table.add_column(0, "REAL", pa.array([np.int16(real_nr)] * rows))
-    logger.debug("Table created %s", real_table)
-    return real_table
+    missing = [
+        col_name for col_name in required if col_name not in real_table.column_names
+    ]
+    if len(missing):
+        logger.info("Real: %s, missing these columns %s", real_nr, missing)
+    for miss in missing:
+        real_table = real_table.add_column(0, miss, pa.array([None] * rows))
+    logger.debug("Table created %s", type(real_table))
+    # Sort to ensure that table has cols in same order even
+    # when missing cols occur
+
+    return real_table.select(sorted(real_table.column_names))
 
 
 async def aggregate_arrow(
-    object_ids: Dict[str, str], sumo: SumoClient, loop
+    object_ids: Dict[str, str], sumo: SumoClient, required, loop
 ) -> pa.Table:
     """Aggregate the individual objects into one large pyarrow table
     args:
     object_ids (dict): key is real nr, value is object id
     sumo (SumoClient): initialized sumo client
+    required (list): list of columns that need to be in table
     loop (asyncio.event_loop)
     returns: pa.Table: the aggregated results
     """
+    logger = init_logging(__name__ + ".aggregate_arrow")
     aggregated = []
     for real_nr, object_id in object_ids.items():
         aggregated.append(
-            call_parallel(loop, None, reconstruct_table, object_id, real_nr, sumo)
+            call_parallel(
+                loop, None, reconstruct_table, object_id, real_nr, sumo, required
+            )
         )
-    aggregated = pa.concat_tables(await asyncio.gather(*aggregated))
+    logger.info("Ready for action!")
+    aggregated = pa.concat_tables(await asyncio.gather(*aggregated), promote=True)
     return aggregated
 
 
@@ -550,48 +715,49 @@ def do_stats(frame, index, col_name, aggfunc, aggname):
     """
     logger = init_logging(__name__ + ".do_stats")
     # frame = table.to_pandas()
-    logger.debug("Columns prior to groupby: %s", frame.columns)
+    logger.debug("Nr of columns prior to groupby: %s", len(frame.columns))
     stat = frame.groupby(index)[col_name].agg(aggfunc).to_frame().reset_index()
     table = pa.Table.from_pandas(stat)
     output = (aggname, table)
-    logger.debug("%s %s", output[0], output[1].column_names)
+    logger.debug("%s %s", output[0], len(output[1].column_names))
     return output
 
 
 @timethis("multiprocessing")
 def make_stat_aggregations(
-    table_dict: dict,
+    col_name: str,
+    table: pa.Table,
     table_index: Union[list, str],
     # aggfuncs: list = ("mean", "min", "max", p10, p90),
 ):
-    """Make statistical aggregations from pyarrow dataframe
-    args
-    table (pa.Table): data to process
-    meta_stub (dict): dictionary that is start of creating proper metadata
-    aggfuncs (list): statistical aggregations to include
-    logger  = init_logging(__name__ + ".table_to_bytes")st): what aggregations to process
+    """Return statistical aggregations from pyarrow table
+
+    Args:
+        col_name (str): name of column to perform stats on
+        table (pa.Table): The table to do the stats from
+        table_index (Union[list, str]): name of table index columns
+
+    Returns:
+        tuple: results from statistical calculations
     """
     logger = init_logging(__name__ + ".make_stat_aggregations")
     logger.debug("Running with %s cpus", os.cpu_count())
     aggdict = {"mean": "mean", "min": "min", "max": "max", "p10": p10, "p90": p90}
     stat_input = []
-    for col_name, table in table_dict.items():
-        logger.debug("Calculating statistics on vector %s", col_name)
-        logger.debug("Table index %s", table_index)
-        logger.debug(
-            "Columns before conversion to pandas df %s (size %s)",
-            table.column_names,
-            table.shape,
+
+    logger.debug("----converting to pandas---")
+    # logger.debug(table.schema)
+    frame = deepcopy(
+        table.to_pandas(
+            ignore_metadata=True,
         )
-        logger.debug(table.schema)
-        frame = deepcopy(
-            table.to_pandas(
-                ignore_metadata=True,
-            )
-        )
+    )
+    if frame[col_name].dtype != object:
+        logger.debug("%s is not numeric, will not permform stats", col_name)
+
         logger.debug(
-            "Columns after conversion to pandas df %s (size %s)",
-            frame.columns,
+            "Nr of columns after conversion to pandas df %s (shape %s)",
+            len(frame.columns),
             frame.shape,
         )
         stat_input.extend(
@@ -601,11 +767,13 @@ def make_stat_aggregations(
             ]
         )
 
-    logger.debug("Submitting %s tasks to multprocessing", len(stat_input))
+        logger.debug("Submitting %s tasks to multprocessing", len(stat_input))
 
-    stats = pa.Table.from_arrays(pa.array([]))
-    with get_context("spawn").Pool() as pool:
-        stats = pool.starmap(do_stats, stat_input)
+        stats = pa.Table.from_arrays(pa.array([]))
+        with get_context("spawn").Pool() as pool:
+            stats = pool.starmap(do_stats, stat_input)
+    else:
+        stats = ()
     return stats
 
 
@@ -617,7 +785,7 @@ def prepare_object_launch(meta: dict, table, name, operation):
     columns (list): the column names in the frame
     """
     logger = init_logging(__name__ + ".complete_meta")
-    logger.debug("Preparing with data source %s", table)
+    logger.debug("Preparing with data source %s", type(table))
     byte_string = table_to_bytes(table)
     tag = meta["data"]["tagname"]
     md5 = md5sum(byte_string)
@@ -631,8 +799,6 @@ def prepare_object_launch(meta: dict, table, name, operation):
     )
     full_meta["file"]["checksum_md5"] = md5
     full_meta["fmu"]["aggregation"]["id"] = uuid_from_string(md5)
-    full_meta["file"]["checksum_md5"] = md5
-    full_meta["fmu"]["aggregation"]["id"] = uuid_from_string(md5)
     full_meta["fmu"]["aggregation"]["operation"] = operation
     full_meta["data"]["spec"]["columns"] = table.column_names
     if operation == "collection":
@@ -640,6 +806,8 @@ def prepare_object_launch(meta: dict, table, name, operation):
     # full_meta["data"]["name"] = name
     full_meta["display"]["name"] = name
     full_meta["file"]["relative_path"] = unique_name
+    size = sys.getsizeof(full_meta) / (1024 * 1024)
+    logger.info("Size of meta dict: %.2e\n", size)
     logger.debug("Metadata %s", full_meta)
     logger.debug("Object %s ready for launch", unique_name)
     return byte_string, full_meta
@@ -679,6 +847,7 @@ def upload_table(
         operation (str): operation type
 
     """
+    sumo = check_or_refresh_token(sumo)
     logger = init_logging(__name__ + ".upload_table")
     logger.debug("Uploading %s-%s", name, operation)
     logger.debug("Columns in table %s", table.column_names)
@@ -687,28 +856,50 @@ def upload_table(
     logger.debug("id of table %s", id(table))
     logger.debug("operation from meta %s", meta["fmu"]["aggregation"])
     logger.debug("cols from meta %s", meta["data"]["spec"]["columns"])
+    meta["data"]["spec"]["columns"] = []
     path = f"/objects('{parent_id}')"
     rsp_code = "0"
     success_response = (200, 201)
+    meta_upload = True
     while rsp_code not in success_response:
+        size_of_meta = sys.getsizeof(meta) / (1024 * 1024)
         try:
             response = sumo.post(path=path, json=meta)
             rsp_code = response.status_code
-            logger.debug("response meta: %s", rsp_code)
-        except Exception:
-            exp_type, _, _ = sys.exc_info()
-            logger.debug("Exception %s while uploading metadata", str(exp_type))
+            logger.info("response meta: %s", rsp_code)
+        except PermanentError:
+            meta_upload = False
+            logger.warning(
+                "Permanent error while uploading metadata, Size of meta %.2e MB",
+                size_of_meta,
+            )
+            logger.info(meta)
+            break
 
-    blob_url = response.json().get("blob_url")
-    rsp_code = "0"
-    while rsp_code not in success_response:
-        try:
-            response = sumo.blob_client.upload_blob(blob=byte_string, url=blob_url)
-            rsp_code = response.status_code
-            logger.debug("Response blob %s", rsp_code)
         except Exception:
-            exp_type, _, _ = sys.exc_info()
-            logger.debug("Exception %s while uploading metadata", str(exp_type))
+            exp_type, exp, _ = sys.exc_info()
+            logger.warning(
+                "Exception %s while uploading metadata (%s) (Size: %.2e MB)",
+                exp,
+                str(exp_type),
+                size_of_meta,
+            )
+    if meta_upload:
+        blob_url = response.json().get("blob_url")
+        rsp_code = "0"
+        while rsp_code not in success_response:
+            try:
+                response = sumo.blob_client.upload_blob(blob=byte_string, url=blob_url)
+                rsp_code = response.status_code
+                logger.info("Response blob %s", rsp_code)
+            except Exception:
+                exp_type, exp, _ = sys.exc_info()
+                logger.warning(
+                    "Exception %s while uploading metadata (%s)", exp, str(exp_type)
+                )
+        logger.info(f"%s uploaded", meta["file"]["relative_path"])
+    else:
+        logger.error("Cannot upload blob since no meta upload")
 
 
 def upload_stats(
@@ -769,8 +960,6 @@ async def extract_and_upload(
         meta_stub (dict): a metadata stub to be used for generating metadata for all split results
         loop (asyncio.event_loop): event loop to be used for upload
         executor (ThreadpoolExecutor): Executor for event loop
-        keep_grand_aggregation (bool, optional): Upload the large aggregation as object.
-                                                Defaults to False.
     """
     logger = init_logging(__name__ + ".extract_and_upload")
     logger.debug(
@@ -781,11 +970,13 @@ async def extract_and_upload(
     unneccessaries = ["YEARS", "SECONDS", "ENSEMBLE"]
     logger.debug("This is the index to keep %s", neccessaries)
     # task scheduler
-    tasks = []
-    table_dict = {}
+    tasks = generate_table_index_values(
+        sumo, parent_id, table, table_index, meta_stub, loop, executor
+    )
     for col_name in table.column_names:
         if col_name in (neccessaries + unneccessaries):
             continue
+        table_dict = {}
         logger.debug("Preparing %s", col_name)
         keep_cols = neccessaries + [col_name]
         logger.debug("Columns to pass through %s", keep_cols)
@@ -804,19 +995,19 @@ async def extract_and_upload(
                 "collection",
             )
         )
-        count += 1
-    logger.debug("Submitting: %s", table_dict)
-
-    tasks.extend(
-        upload_stats(
-            sumo,
-            parent_id,
-            make_stat_aggregations(table_dict, table_index),
-            meta_stub,
-            loop,
-            executor,
+        tasks.extend(
+            upload_stats(
+                sumo,
+                parent_id,
+                make_stat_aggregations(col_name, export_frame, table_index),
+                meta_stub,
+                loop,
+                executor,
+            )
         )
-    )
+
+        count += 1
+    logger.debug("Submitting: %s additional tasks", len(table_dict.keys()))
 
     logger.debug("Tasks to run %s ", len(tasks))
     await asyncio.gather(*tasks)
@@ -826,7 +1017,6 @@ async def extract_and_upload(
 def convert_metadata(
     single_metadata: dict,
     real_ids: list,
-    parameters: dict,
     table_index,
     operation: str = "collection",
 ):
@@ -834,13 +1024,15 @@ def convert_metadata(
     args:
     single_metadata (dict): one single metadata dict
     real_ids (list): list of realization numbers, needed for metadata
-    parameters (dict): dictionary of dictionaries, with key as global var name
-                       as key, then value being dict with key as real and value
-                       as global var value
     operation (str): what type of operation the aggregation performs
     returns agg_metadata (dict): metadata dict that can be further used for aggregation
     """
     logger = init_logging(__name__ + ".convert_metadata")
+    logger.info(
+        "Table index going in %s, but input index is %s",
+        single_metadata["data"]["table_index"],
+        table_index,
+    )
     agg_metadata = single_metadata.copy()
     try:
         del agg_metadata["_sumo"]
@@ -852,23 +1044,72 @@ def convert_metadata(
         del agg_metadata["fmu"]["realization"]
     except KeyError:
         logger.debug("No realization part to delete")
-    if table_index is not None:
+    outside_index = False
+    try:
+        outside_index = len(table_index) > 0
+    except TypeError:
+        outside_index = table_index is not None
+    if outside_index:
         agg_metadata["data"]["table_index"] = table_index
     else:
         try:
             table_index = agg_metadata["data"]["table_index"]
         except KeyError:
-            logger.warning("No table index set, will produce no results")
+            logger.warning(
+                "No table index set, will produce no results",
+            )
             agg_metadata["data"]["table_index"] = None
 
     # Adding specific aggregation ones
     agg_metadata["fmu"]["aggregation"] = agg_metadata["fmu"].get("aggregation", {})
     agg_metadata["fmu"]["aggregation"]["operation"] = operation
     agg_metadata["fmu"]["aggregation"]["realization_ids"] = list(real_ids)
-    agg_metadata["fmu"]["iteration"]["parameters"] = parameters
     agg_metadata["fmu"]["context"]["stage"] = "iteration"
     # Since no file on disk, trying without paths
     agg_metadata["file"]["absolute_path"] = ""
     agg_metadata["data"]["spec"]["columns"] = []
+    logger.info("The table index will be %s", agg_metadata["data"]["table_index"])
 
     return agg_metadata
+
+
+def generate_table_index_values(
+    sumo,
+    parent_id,
+    table,
+    table_index,
+    meta_stub,
+    loop,
+    executor,
+):
+    """Que table_index values
+
+    Args:
+        sumo (SumoClient): initialized sumo Client
+        parent_id (str): object id of parent object
+        table (pa.Table): Table to derive indexes from
+        table_index (list)): list of indexes
+        meta_stub (dic): a metadata stub to be used for generating final meta
+        loop (asyncio.event_loop): event loop to be used for upload
+        executor (ThreadpoolExecutor): Executor for event loop
+
+    Returns:
+        list: tasks queued
+    """
+    index_tasks = []
+    for index in table_index:
+        ind_table = pa.Table.from_arrays([pc.unique(table[index])], names=[index])
+        index_tasks.append(
+            call_parallel(
+                loop,
+                executor,
+                upload_table,
+                sumo,
+                parent_id,
+                ind_table,
+                index,
+                meta_stub,
+                "index",
+            )
+        )
+    return index_tasks
