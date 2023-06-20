@@ -305,36 +305,6 @@ def query_sumo(
         iteration,
     )
     buck_term = "file.checksum_md5.keyword"
-    # query = {
-    # "query": {
-    # "bool": {
-    # "must": [
-    # {"term": {"_sumo.parent_object.keyword": {"value": case_uuid}}},
-    # {"term": {"data.name.keyword": {"value": name}}},
-    # {"term": {"data.tagname.keyword": {"value": tag}}},
-    # {"term": {"class.keyword": {"value": "table"}}},
-    # {"term": {"fmu.iteration.name.keyword": {"value": iteration}}},
-    # ],
-    # "must_not": [{"exists": {"field": "fmu.aggregation"}}],
-    # }
-    # },
-    # "aggs": {
-    # "checksum": {
-    # "terms": {"field": "file.checksum_md5.keyword", "size": 100},
-    # # "aggs": {
-    # # "tagname": {"terms": {"field": "data.tagname.keyword", "size": 100}}
-    # # },
-    # }
-    # },
-    # "sort": [{"_doc": {"order": "desc"}}],
-    # "size": 100,
-    # }
-    # logger.info("Query for one specific table: \n%s", query)
-    # if search_after is not None:
-    # query["search_after"] = search_after
-    # logger.info("Need to find more documents, starting at %s", search_after)
-
-    # query_results = sumo.post(path="/search", json=query).json()
     query = (
         f"class:table AND _sumo.parent_object:{case_uuid}"
         + f" AND data.name:{name} AND data.tagname:{tag}"
