@@ -85,7 +85,8 @@ def find_env(url):
     Returns:
         str: the name of environments
     """
-    print(url)
+    logger = init_logging(__name__ + ".find_url")
+    logger.debug("Finding env from url: %s", url)
     url_parts = url.split(".")
     return url_parts[0].split("-")[-1]
 
@@ -194,8 +195,7 @@ def get_buckets(agg_results, selector):
     Returns:
         list: list of results
     """
-    print("------------------------")
-    print(agg_results)
+
     agg_list = [bucket["key"] for bucket in agg_results[selector]["buckets"]]
     return agg_list
 
@@ -1129,7 +1129,6 @@ def generate_table_index_values(
     index_tasks = []
     for index in table_index:
         ind_table = pa.Table.from_arrays([pc.unique(table[index])], names=[index])
-        print(ind_table)
         index_tasks.append(
             call_parallel(
                 loop,

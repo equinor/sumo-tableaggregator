@@ -129,7 +129,9 @@ class TableAggregator:
             )
         else:
             self.aggregated = None
-            self._logger.warning("No aggregation will be done, no table index!!")
+            self._logger.warning(
+                "No aggregation will be done, no table index",
+            )
 
     @ut.timethis("upload")
     def upload(self):
@@ -200,9 +202,6 @@ class AggregationRunner:
                 self._logger.info("\nData.name: %s", name)
                 for tag in tag_list:
                     self._logger.info("  data.tagname: %s", tag)
-                    if tag not in ["gruptree"]:
-                        print("Skipping ", tag)
-                        continue
                     aggregator = TableAggregator(
                         self._uuid,
                         name,
