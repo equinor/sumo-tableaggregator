@@ -201,6 +201,8 @@ class AggregationRunner:
             for name, tag_list in names_w_tags.items():
                 self._logger.info("\nData.name: %s", name)
                 for tag in tag_list:
+                    if tag != "equil":
+                        continue
                     self._logger.info("  data.tagname: %s", tag)
                     aggregator = TableAggregator(
                         self._uuid,
