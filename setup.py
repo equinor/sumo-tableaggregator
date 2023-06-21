@@ -32,6 +32,7 @@ setup(
         "pandas",
         "pyarrow",
         "sumo-wrapper-python",
+        "psutil",
         "setuptools",
         "azure-core",
         "deprecation",

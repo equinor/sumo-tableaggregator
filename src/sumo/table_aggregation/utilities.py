@@ -1,5 +1,4 @@
 """Utils for table aggregation"""
-import psutil
 import os
 import base64
 import json
@@ -15,6 +14,7 @@ import asyncio
 from multiprocessing import get_context
 from copy import deepcopy
 from io import BytesIO
+import psutil
 import numpy as np
 import pandas as pd
 import pyarrow as pa
@@ -27,6 +27,7 @@ from sumo.wrapper._request_error import PermanentError
 
 # inner psutil function
 def process_memory():
+    """Fetch memory usage"""
     process = psutil.Process(os.getpid())
     mem_info = process.memory_info()
     return mem_info.rss
@@ -34,6 +35,7 @@ def process_memory():
 
 # decorator function
 def memcount():
+    """Decorate function to monitor memory usage"""
     logger = init_logging(__name__ + ".memcount")
 
     def decorator(func):
