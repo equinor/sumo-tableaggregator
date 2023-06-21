@@ -1,5 +1,4 @@
 """Utils for table aggregation"""
-import psutil
 import os
 import base64
 import json
