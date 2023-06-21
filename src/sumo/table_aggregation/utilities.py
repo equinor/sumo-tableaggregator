@@ -1,4 +1,5 @@
 """Utils for table aggregation"""
+import psutil
 import os
 import base64
 import json
@@ -22,6 +23,37 @@ from pyarrow import feather
 import pyarrow.parquet as pq
 from sumo.wrapper import SumoClient
 from sumo.wrapper._request_error import PermanentError
+
+
+# inner psutil function
+def process_memory():
+    process = psutil.Process(os.getpid())
+    mem_info = process.memory_info()
+    return mem_info.rss
+
+
+# decorator function
+def memcount():
+    logger = init_logging(__name__ + ".memcount")
+
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            mem_before = process_memory()
+            result = func(*args, **kwargs)
+            mem_after = process_memory()
+            logger.info(
+                "consumed memory by %s: %i, %i, %i ",
+                func.__name__,
+                mem_before,
+                mem_after,
+                mem_after - mem_before,
+            )
+
+            return result
+
+        return wrapper
+
+    return decorator
 
 
 def timethis(label):
@@ -626,6 +658,7 @@ def get_blob_ids_w_metadata(hits: list, **kwargs: dict) -> tuple:
     return split_results_and_meta(hits, **kwargs)
 
 
+@memcount()
 def reconstruct_table(
     object_id: str, real_nr: str, sumo: SumoClient, required: list
 ) -> pa.Table:
@@ -724,6 +757,7 @@ def do_stats(frame, index, col_name, aggfunc, aggname):
 
 
 @timethis("multiprocessing")
+@memcount()
 def make_stat_aggregations(
     col_name: str,
     table: pa.Table,
@@ -847,7 +881,7 @@ def upload_table(
         operation (str): operation type
 
     """
-    sumo = check_or_refresh_token(sumo)
+    # sumo = check_or_refresh_token(sumo)
     logger = init_logging(__name__ + ".upload_table")
     logger.debug("Uploading %s-%s", name, operation)
     logger.debug("Columns in table %s", table.column_names)
