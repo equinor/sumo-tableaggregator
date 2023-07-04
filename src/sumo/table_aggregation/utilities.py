@@ -44,7 +44,7 @@ def memcount():
             result = func(*args, **kwargs)
             mem_after = process_memory()
             logger.info(
-                "consumed memory by %s: %i, %i, %i ",
+                "Memory used %s: in %i, out %i, difference  %i ",
                 func.__name__,
                 mem_before,
                 mem_after,
@@ -78,6 +78,25 @@ def timethis(label):
         return wrapper
 
     return decorator
+
+
+def split_list(list_to_split: list, size: int) -> list:
+    """Split list into segments
+
+    Args:
+        list_to_split (list): the list to split
+        size (int): the size of each sublist
+
+    Returns:
+        list: the list of lists
+    """
+    list_list = []
+    while len(list_to_split) > size:
+        piece = list_to_split[:size]
+        list_list.append(piece)
+        list_to_split = list_to_split[size:]
+    list_list.append(list_to_split)
+    return list_list
 
 
 def init_logging(name: str) -> logging.Logger:
@@ -441,7 +460,7 @@ def uuid_from_string(string: str) -> str:
     return str(uuid.UUID(hashlib.md5(string.encode("utf-8")).hexdigest()))
 
 
-def get_object(object_id: str, sumo: SumoClient) -> pa.Table:
+def get_object(object_id: str, cols_to_read: list, sumo: SumoClient) -> pa.Table:
     """fetche sumo object as pa.Table
 
     Args:
@@ -453,7 +472,7 @@ def get_object(object_id: str, sumo: SumoClient) -> pa.Table:
     """
     query = f"/objects('{object_id}')/blob"
     try:
-        table = arrow_to_table(sumo.get(query))
+        table = arrow_to_table(sumo.get(query), cols_to_read)
     except (PermanentError, ConnectionError):
         time.sleep(0.5)
         table = get_object(object_id, sumo)
@@ -461,7 +480,7 @@ def get_object(object_id: str, sumo: SumoClient) -> pa.Table:
     return table
 
 
-def arrow_to_table(blob_object) -> pa.Table:
+def arrow_to_table(blob_object, columns) -> pa.Table:
     """Reads sumo blob into pandas dataframe
     args:
     blob_object (dict): the object to read
@@ -470,12 +489,16 @@ def arrow_to_table(blob_object) -> pa.Table:
     logger = init_logging(__name__ + ".arrow_to_table")
 
     try:
-        table = pq.read_table(pa.BufferReader(blob_object))
+        table = pq.read_table(pa.BufferReader(blob_object), columns=columns)
     except pa.lib.ArrowInvalid:
         try:
-            table = feather.read_table(pa.BufferReader(blob_object))
+            table = feather.read_table(pa.BufferReader(blob_object), columns=columns)
         except pa.lib.ArrowInvalid:
-            table = pa.Table.from_pandas(pd.read_csv(BytesIO(blob_object)))
+            logger.warning(
+                "Reading csv file with just some columns, not as efficent as arrow"
+            )
+            frame = pd.read_csv(BytesIO(blob_object))
+            table = pa.Table.from_pandas(frame[columns])
     logger.debug("Returning table with %s columns", len(table.column_names))
     return table
 
@@ -678,7 +701,7 @@ def reconstruct_table(
     """
     logger = init_logging(__name__ + ".reconstruct_table")
     logger.debug("Real %s", real_nr)
-    real_table = get_object(object_id, sumo)
+    real_table = get_object(object_id, required, sumo)
     rows = real_table.shape[0]
 
     real_table = real_table.add_column(0, "REAL", pa.array([np.int16(real_nr)] * rows))
@@ -1066,9 +1089,10 @@ def convert_metadata(
     logger = init_logging(__name__ + ".convert_metadata")
     logger.info(
         "Table index going in %s, but input index is %s",
-        single_metadata["data"]["table_index"],
+        single_metadata["data"].get("table_index", None),
         table_index,
     )
+
     agg_metadata = single_metadata.copy()
     try:
         del agg_metadata["_sumo"]

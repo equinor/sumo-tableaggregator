@@ -97,10 +97,18 @@ class TableAggregator:
         return self._meta
 
     @property
+    def columns(self):
+        """Return _meta["data"]["spec"]["columns"] split into batches of 1000
+
+        Returns:
+            list: the columns of the table set provided
+        """
+        largest_size = 1000
+        return ut.split_list(self._meta["data"]["spec"]["columns"], largest_size)
+
+    @property
     def aggregated(self) -> pd.DataFrame:
         """Return the _aggregated attribute"""
-        if self._aggregated is None:
-            self.aggregate()
 
         return self._aggregated
 
@@ -115,15 +123,16 @@ class TableAggregator:
         # self._logger.info("Aggregated results %s", aggregated)
 
     @ut.timethis("aggregation")
-    def aggregate(self):
+    def aggregate(self, columns):
         """Aggregate objects over tables per real stored in sumo"""
+        self._logger.info("table_index = %s", self.table_index)
         if (self.table_index is not None) and (len(self.table_index) > 0):
             # self.aggregated = None
             self.aggregated = self.loop.run_until_complete(
                 ut.aggregate_arrow(
                     self.object_ids,
                     self.sumo,
-                    self.base_meta["data"]["spec"]["columns"],
+                    columns,
                     self.loop,
                 )
             )
@@ -154,8 +163,9 @@ class TableAggregator:
 
     def run(self):
         """Run aggregation and upload"""
-        self.aggregate()
-        self.upload()
+        for list_seg in self.columns:
+            self.aggregate(list_seg)
+            self.upload()
 
 
 class AggregationRunner:
@@ -201,6 +211,8 @@ class AggregationRunner:
             for name, tag_list in names_w_tags.items():
                 self._logger.info("\nData.name: %s", name)
                 for tag in tag_list:
+                    if tag != "summary":
+                        continue
                     self._logger.info("  data.tagname: %s", tag)
                     aggregator = TableAggregator(
                         self._uuid,
