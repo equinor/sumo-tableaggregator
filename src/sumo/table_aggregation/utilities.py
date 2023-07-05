@@ -44,7 +44,7 @@ def memcount():
             result = func(*args, **kwargs)
             mem_after = process_memory()
             logger.info(
-                "Memory used %s: in %i, out %i, difference  %i ",
+                "Memory used by %s: in %i, out %i, difference  %i ",
                 func.__name__,
                 mem_before,
                 mem_after,
@@ -291,6 +291,7 @@ def query_for_name_and_tags(sumo: SumoClient, case_uuid: str, iteration: str):
         dict: the results
     """
     logger = init_logging(__name__ + ".query_for_name_and_tags")
+    logger.info("Finding tables for iteration: %s", iteration)
     query = {
         "query": {
             "bool": {
@@ -475,7 +476,7 @@ def get_object(object_id: str, cols_to_read: list, sumo: SumoClient) -> pa.Table
         table = arrow_to_table(sumo.get(query), cols_to_read)
     except (PermanentError, ConnectionError):
         time.sleep(0.5)
-        table = get_object(object_id, sumo)
+        table = get_object(object_id, cols_to_read, sumo)
 
     return table
 
@@ -513,6 +514,7 @@ class MetadataSet:
         self._real_ids = set()
         self._uuids = set()
         self._table_index = table_index
+        self._base_meta = {}
         self._columns = ()
         self._logger = init_logging(__name__ + ".MetadataSet")
 
@@ -539,6 +541,15 @@ class MetadataSet:
             list: the table index
         """
         return self._table_index
+
+    @property
+    def base_meta(self):
+        """Return attribute _base_meta
+
+        Returns:
+            dict: metadata to be used as basis for all aggregated objects
+        """
+        return self._base_meta
 
     @property
     def agg_columns(self):
@@ -593,7 +604,7 @@ class MetadataSet:
         """
         self._real_ids.add(real_nr)
 
-    def base_meta(self, metadata: dict) -> dict:
+    def gen_agg_meta(self, metadata: dict) -> dict:
         """Converts one metadata file into aggregated metadata
         args:
         metadata (dict): one valid metadatafile
@@ -601,15 +612,13 @@ class MetadataSet:
                                      aggregations to come
         """
         logger = init_logging(__name__ + ".base_meta")
-        agg_metadata = convert_metadata(
+        self._base_meta = convert_metadata(
             metadata, self.real_ids, self.parameter_dict, self.table_index
         )
-        agg_metadata["data"]["spec"]["columns"] = self.agg_columns
-        self._table_index = agg_metadata["data"]["table_index"]
+        self._base_meta["data"]["spec"]["columns"] = self.agg_columns
+        self._table_index = self._base_meta["data"]["table_index"]
 
         logger.debug("--\n Table index is: %s\n--------", self._table_index)
-
-        return agg_metadata
 
 
 def get_parent_id(result: dict) -> str:
@@ -656,12 +665,12 @@ def split_results_and_meta(results: list, **kwargs: dict) -> tuple:
             len(col_lengths),
             col_lengths,
         )
+    meta.gen_agg_meta(real_meta)
 
-    agg_meta = meta.base_meta(real_meta)
     split_tup = (
         parent_id,
         blob_ids,
-        agg_meta,
+        meta.base_meta,
         meta.table_index,
     )
     return split_tup
@@ -956,7 +965,7 @@ def upload_table(
                 logger.warning(
                     "Exception %s while uploading metadata (%s)", exp, str(exp_type)
                 )
-        logger.info(f"%s uploaded", meta["file"]["relative_path"])
+        logger.info("uploaded %s", meta["file"]["relative_path"])
     else:
         logger.error("Cannot upload blob since no meta upload")
 
