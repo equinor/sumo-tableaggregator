@@ -34,7 +34,6 @@ class TableAggregator:
         self._name = name
         self.loop = asyncio.get_event_loop()
         self._iteration = iteration
-        # try:
         (
             self._parent_id,
             self._object_ids,
@@ -101,10 +100,19 @@ class TableAggregator:
         """Return _meta["data"]["spec"]["columns"] split into batches of 1000
 
         Returns:
-            list: the columns of the table set provided
+            tuple: tuple of tuples with the columns segmented by size
         """
         largest_size = 1000
-        return ut.split_list(self._meta["data"]["spec"]["columns"], largest_size)
+        segments = ut.split_list(
+            self.base_meta["data"]["spec"]["columns"], largest_size
+        )
+        segs_w_table_index = []
+        for segment in segments:
+            seg_set = set(segment)
+            seg_set.update(self.table_index)
+
+            segs_w_table_index.append(tuple(seg_set))
+        return tuple(segs_w_table_index)
 
     @property
     def aggregated(self) -> pd.DataFrame:
@@ -211,8 +219,6 @@ class AggregationRunner:
             for name, tag_list in names_w_tags.items():
                 self._logger.info("\nData.name: %s", name)
                 for tag in tag_list:
-                    if tag != "summary":
-                        continue
                     self._logger.info("  data.tagname: %s", tag)
                     aggregator = TableAggregator(
                         self._uuid,
