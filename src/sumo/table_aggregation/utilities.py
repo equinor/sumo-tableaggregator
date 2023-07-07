@@ -43,7 +43,7 @@ def memcount():
             mem_before = process_memory()
             result = func(*args, **kwargs)
             mem_after = process_memory()
-            logger.info(
+            logger.debug(
                 "Memory used by %s: in %i, out %i, difference  %i ",
                 func.__name__,
                 mem_before,
@@ -473,7 +473,7 @@ def get_object(object_id: str, cols_to_read: list, sumo: SumoClient) -> pa.Table
     """
     query = f"/objects('{object_id}')/blob"
     try:
-        table = arrow_to_table(sumo.get(query), cols_to_read)
+        table = blob_to_table(BytesIO(sumo.get(query)), cols_to_read)
     except (PermanentError, ConnectionError):
         time.sleep(0.5)
         table = get_object(object_id, cols_to_read, sumo)
@@ -481,25 +481,34 @@ def get_object(object_id: str, cols_to_read: list, sumo: SumoClient) -> pa.Table
     return table
 
 
-def arrow_to_table(blob_object, columns) -> pa.Table:
-    """Reads sumo blob into pandas dataframe
-    args:
-    blob_object (dict): the object to read
-    pa.Table: the read results
+def blob_to_table(blob_object, columns) -> pa.Table:
+    """Read stored blob into arrow table
+
+    Args:
+        blob_object (bytes): the object to convert
+        columns (list): the columns to read from object
+
+    Returns:
+        pa.Table: the results stored as pyarrow table
     """
     logger = init_logging(__name__ + ".arrow_to_table")
 
     try:
-        table = pq.read_table(pa.BufferReader(blob_object), columns=columns)
-    except pa.lib.ArrowInvalid:
+        frame = pd.read_csv(blob_object)
+        logger.debug(
+            "Extracting from pandas dataframe with these columns %s", frame.columns
+        )
+        table = pa.Table.from_pandas(frame[list(columns)])
+        fformat = "csv"
+    except UnicodeDecodeError:
         try:
-            table = feather.read_table(pa.BufferReader(blob_object), columns=columns)
+            table = feather.read_table(blob_object, columns=columns)
+            fformat = "feather"
         except pa.lib.ArrowInvalid:
-            logger.warning(
-                "Reading csv file with just some columns, not as efficent as arrow"
-            )
-            frame = pd.read_csv(BytesIO(blob_object))
-            table = pa.Table.from_pandas(frame[columns])
+            fformat = "parquet"
+            table = pq.read_table(blob_object, columns=columns)
+
+    logger.info("Reading table as %s", fformat)
     logger.debug("Returning table with %s columns", len(table.column_names))
     return table
 
@@ -572,26 +581,24 @@ class MetadataSet:
             realnr (int): realization nr
         """
         if (len(self._columns) > 0) & (len(self._columns) != len(columns)):
-            self._logger.info("Need to resolve columns")
             if len(self.agg_columns) < len(columns):
-                first = columns
-                second = self.agg_columns
+                to_keep = columns
+                to_compare = self.agg_columns
             else:
-                first = self.agg_columns
-                second = columns
-            diff = [col_name for col_name in first if col_name not in second]
+                to_keep = self.agg_columns
+                to_compare = columns
+            diff = [col_name for col_name in to_keep if col_name not in to_compare]
             if len(diff) > 0:
                 mess = (
-                    f"This/these columns are not in all reals {diff}"
-                    + f", something is different with real {realnr}"
+                    f", something is different with real {realnr}"
+                    + f"This/these columns are not found earlier {diff}"
                 )
-                # warnings.warn(mess)
-                self._logger.info(mess)
+                self._logger.warning(mess)
 
-            self.agg_columns = first
+            self.agg_columns = to_keep
         else:
             self._columns = columns
-            self._logger.info("Columns are good")
+            self._logger.debug("Columns are g ood")
 
     def aggid(self) -> str:
         """Return the hash of the sum of all the sorted(uuids)"""
@@ -713,6 +720,11 @@ def reconstruct_table(
     real_table = get_object(object_id, required, sumo)
     rows = real_table.shape[0]
 
+    logger.info(
+        "Table contains the following columns: %s (real: %i)",
+        real_table.column_names,
+        real_nr,
+    )
     real_table = real_table.add_column(0, "REAL", pa.array([np.int16(real_nr)] * rows))
     missing = [
         col_name for col_name in required if col_name not in real_table.column_names
@@ -722,9 +734,9 @@ def reconstruct_table(
     for miss in missing:
         real_table = real_table.add_column(0, miss, pa.array([None] * rows))
     logger.debug("Table created %s", type(real_table))
+
     # Sort to ensure that table has cols in same order even
     # when missing cols occur
-
     return real_table.select(sorted(real_table.column_names))
 
 
@@ -868,6 +880,7 @@ def prepare_object_launch(meta: dict, table, name, operation):
     full_meta["file"]["checksum_md5"] = md5
     full_meta["fmu"]["aggregation"]["id"] = uuid_from_string(md5)
     full_meta["fmu"]["aggregation"]["operation"] = operation
+    full_meta["data"]["format"] = "arrow"
     full_meta["data"]["spec"]["columns"] = table.column_names
     if operation == "collection":
         full_meta["data"]["table_index"].append("REAL")
@@ -924,7 +937,6 @@ def upload_table(
     logger.debug("id of table %s", id(table))
     logger.debug("operation from meta %s", meta["fmu"]["aggregation"])
     logger.debug("cols from meta %s", meta["data"]["spec"]["columns"])
-    meta["data"]["spec"]["columns"] = []
     path = f"/objects('{parent_id}')"
     rsp_code = "0"
     success_response = (200, 201)
