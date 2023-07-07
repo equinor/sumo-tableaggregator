@@ -720,7 +720,7 @@ def reconstruct_table(
     real_table = get_object(object_id, required, sumo)
     rows = real_table.shape[0]
 
-    logger.info(
+    logger.debug(
         "Table contains the following columns: %s (real: %i)",
         real_table.column_names,
         real_nr,

@@ -109,8 +109,10 @@ class TableAggregator:
         segs_w_table_index = []
         for segment in segments:
             seg_set = set(segment)
-            seg_set.update(self.table_index)
-
+            try:
+                seg_set.update(self.table_index)
+            except TypeError:
+                self._logger.warning("Cannot add index, is %s", self.table_index)
             segs_w_table_index.append(tuple(seg_set))
         return tuple(segs_w_table_index)
 
@@ -133,7 +135,7 @@ class TableAggregator:
     @ut.timethis("aggregation")
     def aggregate(self, columns):
         """Aggregate objects over tables per real stored in sumo"""
-        self._logger.info("table_index = %s", self.table_index)
+        self._logger.info("table_index for aggregation: %s", self.table_index)
         if (self.table_index is not None) and (len(self.table_index) > 0):
             # self.aggregated = None
             self.aggregated = self.loop.run_until_complete(
@@ -219,7 +221,7 @@ class AggregationRunner:
             for name, tag_list in names_w_tags.items():
                 self._logger.info("\nData.name: %s", name)
                 for tag in tag_list:
-                    if tag != "rft":
+                    if tag != "vol":
                         continue
                     self._logger.info("  data.tagname: %s", tag)
                     aggregator = TableAggregator(
