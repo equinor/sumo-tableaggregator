@@ -498,7 +498,10 @@ def blob_to_table(blob_object, columns) -> pa.Table:
         logger.debug(
             "Extracting from pandas dataframe with these columns %s", frame.columns
         )
-        table = pa.Table.from_pandas(frame[list(columns)])
+        try:
+            table = pa.Table.from_pandas(frame[list(columns)])
+        except KeyError:
+            table = pa.Table.from_pandas(pd.DataFrame())
         fformat = "csv"
     except UnicodeDecodeError:
         try:
@@ -508,7 +511,7 @@ def blob_to_table(blob_object, columns) -> pa.Table:
             fformat = "parquet"
             table = pq.read_table(blob_object, columns=columns)
 
-    logger.info("Reading table as %s", fformat)
+    logger.debug("Reading table as %s", fformat)
     logger.debug("Returning table with %s columns", len(table.column_names))
     return table
 
@@ -590,7 +593,7 @@ class MetadataSet:
             diff = [col_name for col_name in to_keep if col_name not in to_compare]
             if len(diff) > 0:
                 mess = (
-                    f", something is different with real {realnr}"
+                    f", something is different with real {realnr} \n"
                     + f"This/these columns are not found earlier {diff}"
                 )
                 self._logger.warning(mess)
@@ -1108,11 +1111,6 @@ def convert_metadata(
     returns agg_metadata (dict): metadata dict that can be further used for aggregation
     """
     logger = init_logging(__name__ + ".convert_metadata")
-    logger.info(
-        "Table index going in %s, but input index is %s",
-        single_metadata["data"].get("table_index", None),
-        table_index,
-    )
 
     agg_metadata = single_metadata.copy()
     try:

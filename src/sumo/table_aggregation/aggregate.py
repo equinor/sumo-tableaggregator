@@ -34,6 +34,7 @@ class TableAggregator:
         self._name = name
         self.loop = asyncio.get_event_loop()
         self._iteration = iteration
+        # try:
         (
             self._parent_id,
             self._object_ids,
@@ -100,7 +101,7 @@ class TableAggregator:
         """Return _meta["data"]["spec"]["columns"] split into batches of 1000
 
         Returns:
-            tuple: tuple of tuples with the columns segmented by size
+            list: the columns of the table set provided
         """
         largest_size = 1000
         segments = ut.split_list(
@@ -221,7 +222,7 @@ class AggregationRunner:
             for name, tag_list in names_w_tags.items():
                 self._logger.info("\nData.name: %s", name)
                 for tag in tag_list:
-                    if tag != "vol":
+                    if tag != "rft":
                         continue
                     self._logger.info("  data.tagname: %s", tag)
                     aggregator = TableAggregator(

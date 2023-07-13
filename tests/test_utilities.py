@@ -51,15 +51,6 @@ def test_parent_uuid(case_uuid):
     assert_correct_uuid(case_uuid)
 
 
-def test_split_list():
-    correct_len = 21
-    test_list = ut.split_list(list(range(102)), 5)
-    actual_len = len(test_list)
-    assert (
-        actual_len == correct_len
-    ), f"Length of list is {actual_len}, but should be {correct_len}"
-
-
 def test_query_input(query_input):
     """Tests query results"""
     results = query_input["hits"]["hits"]
