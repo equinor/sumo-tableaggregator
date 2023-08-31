@@ -187,7 +187,7 @@ class AggregationRunner:
 
         Args:
             uuid (str): the uuid of the case
-            env (str, optional): the name of the sumo environment for the case, default prod
+            env (str, optional): name of the sumo environment for case, default prod
         """
         self._logger = ut.init_logging(__name__ + ".AggregationRunner")
         self._env = env
