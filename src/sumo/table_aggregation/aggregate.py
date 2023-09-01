@@ -7,7 +7,37 @@ from sumo.wrapper import SumoClient
 import sumo.table_aggregation.utilities as ut
 
 
-class TableAggregator:
+class AggregationBasics:
+    """Class defining the basics for the aggregation"""
+
+    def __init__(
+        self, case_identifier: str, env: str = "prod", token: str = None
+    ) -> None:
+        self._case_identifier = case_identifier
+        self._sumo = SumoClient(env, token)
+        self._uuid = ut.return_uuid(self._sumo, case_identifier)
+
+    @property
+    def case_identifier(self) -> str:
+        """Return _case_name attribute
+
+        Returns:
+            str: name of table
+        """
+        return self._case_identifier
+
+    @property
+    def uuid(self) -> str:
+        """Return _uuid attribute"""
+        return self._uuid
+
+    @property
+    def sumo(self) -> SumoClient:
+        """return the _sumo_attribute"""
+        return self._sumo
+
+
+class TableAggregator(AggregationBasics):
 
     """Class for aggregating tables"""
 
@@ -28,9 +58,7 @@ class TableAggregator:
         token (str): authentication token
         """
         self._logger = ut.init_logging(__file__ + ".TableAggregator")
-        sumo_env = kwargs.get("sumo_env", "prod")
-        self._sumo = SumoClient(sumo_env, token)
-        self._case_identifier = ut.return_uuid(self._sumo, case_identifier)
+        super().__init__(case_identifier, kwargs.get("env", "prod"), token)
         self._name = name
         self.loop = asyncio.get_event_loop()
         self._iteration = iteration
@@ -41,7 +69,7 @@ class TableAggregator:
             self._meta,
             self._table_index,
         ) = ut.query_for_table(
-            self.sumo, self._case_identifier, self._name, tag, self._iteration, **kwargs
+            self.sumo, self.uuid, self._name, tag, self._iteration, **kwargs
         )
 
     @property
@@ -54,20 +82,6 @@ class TableAggregator:
         return self._name
 
     @property
-    def case_identifier(self) -> str:
-        """Return _case_name attribute
-
-        Returns:
-            str: name of table
-        """
-        return self._case_identifier
-
-    @property
-    def parent_id(self) -> str:
-        """Return _parent_id attribute"""
-        return self._parent_id
-
-    @property
     def table_index(self):
         """Return attribute _table_index
 
@@ -75,11 +89,6 @@ class TableAggregator:
             string: the table index
         """
         return self._table_index
-
-    @property
-    def sumo(self) -> SumoClient:
-        """return the _sumo_attribute"""
-        return self._sumo
 
     @property
     def object_ids(self) -> tuple:
@@ -161,7 +170,7 @@ class TableAggregator:
             self.loop.run_until_complete(
                 ut.extract_and_upload(
                     self.sumo,
-                    self.parent_id,
+                    self.uuid,
                     self.aggregated,
                     self.table_index,
                     self.base_meta,
@@ -179,38 +188,21 @@ class TableAggregator:
             self.upload()
 
 
-class AggregationRunner:
+class AggregationRunner(AggregationBasics):
     """Class for running all aggregations of tables for specific case"""
 
-    def __init__(self, uuid: str, env: str = "prod") -> None:
+    def __init__(self, uuid: str, env: str = "prod", token: str = None) -> None:
         """Init of sumo env
 
         Args:
             uuid (str): the uuid of the case
             env (str, optional): name of the sumo environment for case, default prod
         """
+        super().__init__(env, token)
         self._logger = ut.init_logging(__name__ + ".AggregationRunner")
         self._env = env
         self._uuid = uuid
         self._sumo = SumoClient(env)
-
-    @property
-    def uuid(self):
-        """Return uuid of case
-
-        Returns:
-            str: uuid of case
-        """
-        return self._uuid
-
-    @property
-    def env(self):
-        """Return environment of case
-
-        Returns:
-            str: sumo environment
-        """
-        return self._env
 
     def run(self) -> None:
         """Run all aggregation related to case"""
@@ -231,3 +223,6 @@ class AggregationRunner:
                         sumo_env=self._env,
                     )
                     aggregator.run()
+
+
+# class AggregationDispatcher(AggregationRunner):
