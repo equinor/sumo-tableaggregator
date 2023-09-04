@@ -637,7 +637,9 @@ def get_parent_id(result: dict) -> str:
     result (dict): one hit
     returns parent_id
     """
+    logger = init_logging(__name__ + ".get_parent_id")
     parent_id = result["_source"]["_sumo"]["parent_object"]
+    logger.debug("Parent id %s", parent_id)
     return parent_id
 
 
@@ -648,8 +650,6 @@ def split_results_and_meta(results: list, **kwargs: dict) -> tuple:
                    and global variables dict for all realizations
     """
     logger = init_logging(__name__ + ".split_result_and_meta")
-    parent_id = get_parent_id(results[0])
-    logger.debug("Parent id %s", parent_id)
     col_lengths = set()
     meta = MetadataSet(kwargs.get("table_index", None))
     blob_ids = {}
@@ -678,7 +678,6 @@ def split_results_and_meta(results: list, **kwargs: dict) -> tuple:
     meta.gen_agg_meta(real_meta)
 
     split_tup = (
-        parent_id,
         blob_ids,
         meta.base_meta,
         meta.table_index,

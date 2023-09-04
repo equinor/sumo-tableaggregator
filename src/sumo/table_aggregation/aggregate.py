@@ -62,7 +62,6 @@ class TableAggregator(AggregationBasics):
         self._name = name
         self.loop = asyncio.get_event_loop()
         self._iteration = iteration
-        # try:
         (
             self._parent_id,
             self._object_ids,
@@ -140,14 +139,12 @@ class TableAggregator(AggregationBasics):
             aggregated (pa.Table): aggregated results
         """
         self._aggregated = aggregated
-        # self._logger.info("Aggregated results %s", aggregated)
 
     @ut.timethis("aggregation")
     def aggregate(self, columns):
         """Aggregate objects over tables per real stored in sumo"""
         self._logger.info("table_index for aggregation: %s", self.table_index)
         if (self.table_index is not None) and (len(self.table_index) > 0):
-            # self.aggregated = None
             self.aggregated = self.loop.run_until_complete(
                 ut.aggregate_arrow(
                     self.object_ids,
