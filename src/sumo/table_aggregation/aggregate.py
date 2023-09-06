@@ -134,6 +134,7 @@ class TableAggregator:
         # self._logger.info("Aggregated results %s", aggregated)
 
     @ut.timethis("aggregation")
+    @ut.memcount()
     def aggregate(self, columns):
         """Aggregate objects over tables per real stored in sumo"""
         self._logger.info("table_index for aggregation: %s", self.table_index)
