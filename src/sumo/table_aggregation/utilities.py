@@ -51,6 +51,8 @@ def memcount():
                 mem_after - mem_before,
             )
 
+            logger.debug("Virtual memory: %s", psutil.virtual_memory())
+
             return result
 
         return wrapper
