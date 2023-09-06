@@ -97,10 +97,29 @@ class TableAggregator:
         return self._meta
 
     @property
+    def columns(self):
+        """Return _meta["data"]["spec"]["columns"] split into batches of 1000
+
+        Returns:
+            list: the columns of the table set provided
+        """
+        largest_size = 1000
+        segments = ut.split_list(
+            self.base_meta["data"]["spec"]["columns"], largest_size
+        )
+        segs_w_table_index = []
+        for segment in segments:
+            seg_set = set(segment)
+            try:
+                seg_set.update(self.table_index)
+            except TypeError:
+                self._logger.warning("Cannot add index, is %s", self.table_index)
+            segs_w_table_index.append(tuple(seg_set))
+        return tuple(segs_w_table_index)
+
+    @property
     def aggregated(self) -> pd.DataFrame:
         """Return the _aggregated attribute"""
-        if self._aggregated is None:
-            self.aggregate()
 
         return self._aggregated
 
@@ -115,15 +134,16 @@ class TableAggregator:
         # self._logger.info("Aggregated results %s", aggregated)
 
     @ut.timethis("aggregation")
-    def aggregate(self):
+    def aggregate(self, columns):
         """Aggregate objects over tables per real stored in sumo"""
+        self._logger.info("table_index for aggregation: %s", self.table_index)
         if (self.table_index is not None) and (len(self.table_index) > 0):
             # self.aggregated = None
             self.aggregated = self.loop.run_until_complete(
                 ut.aggregate_arrow(
                     self.object_ids,
                     self.sumo,
-                    self.base_meta["data"]["spec"]["columns"],
+                    columns,
                     self.loop,
                 )
             )
@@ -154,8 +174,9 @@ class TableAggregator:
 
     def run(self):
         """Run aggregation and upload"""
-        self.aggregate()
-        self.upload()
+        for list_seg in self.columns:
+            self.aggregate(list_seg)
+            self.upload()
 
 
 class AggregationRunner:
@@ -166,7 +187,7 @@ class AggregationRunner:
 
         Args:
             uuid (str): the uuid of the case
-            env (str, optional): the name of the sumo environment for the case, default prod
+            env (str, optional): name of the sumo environment for case, default prod
         """
         self._logger = ut.init_logging(__name__ + ".AggregationRunner")
         self._env = env
@@ -201,8 +222,6 @@ class AggregationRunner:
             for name, tag_list in names_w_tags.items():
                 self._logger.info("\nData.name: %s", name)
                 for tag in tag_list:
-                    if tag != "equil":
-                        continue
                     self._logger.info("  data.tagname: %s", tag)
                     aggregator = TableAggregator(
                         self._uuid,

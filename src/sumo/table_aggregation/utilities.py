@@ -1,5 +1,4 @@
 """Utils for table aggregation"""
-import psutil
 import os
 import base64
 import json
@@ -44,13 +43,15 @@ def memcount():
             mem_before = process_memory()
             result = func(*args, **kwargs)
             mem_after = process_memory()
-            logger.info(
-                "consumed memory by %s: %i, %i, %i ",
+            logger.debug(
+                "Memory used by %s: in %i, out %i, difference  %i ",
                 func.__name__,
                 mem_before,
                 mem_after,
                 mem_after - mem_before,
             )
+
+            logger.debug("Virtual memory: %s", psutil.virtual_memory())
 
             return result
 
@@ -79,6 +80,25 @@ def timethis(label):
         return wrapper
 
     return decorator
+
+
+def split_list(list_to_split: list, size: int) -> list:
+    """Split list into segments
+
+    Args:
+        list_to_split (list): the list to split
+        size (int): the size of each sublist
+
+    Returns:
+        list: the list of lists
+    """
+    list_list = []
+    while len(list_to_split) > size:
+        piece = list_to_split[:size]
+        list_list.append(piece)
+        list_to_split = list_to_split[size:]
+    list_list.append(list_to_split)
+    return list_list
 
 
 def init_logging(name: str) -> logging.Logger:
@@ -273,6 +293,7 @@ def query_for_name_and_tags(sumo: SumoClient, case_uuid: str, iteration: str):
         dict: the results
     """
     logger = init_logging(__name__ + ".query_for_name_and_tags")
+    logger.info("Finding tables for iteration: %s", iteration)
     query = {
         "query": {
             "bool": {
@@ -442,7 +463,7 @@ def uuid_from_string(string: str) -> str:
     return str(uuid.UUID(hashlib.md5(string.encode("utf-8")).hexdigest()))
 
 
-def get_object(object_id: str, sumo: SumoClient) -> pa.Table:
+def get_object(object_id: str, cols_to_read: list, sumo: SumoClient) -> pa.Table:
     """fetche sumo object as pa.Table
 
     Args:
@@ -454,29 +475,45 @@ def get_object(object_id: str, sumo: SumoClient) -> pa.Table:
     """
     query = f"/objects('{object_id}')/blob"
     try:
-        table = arrow_to_table(sumo.get(query))
+        table = blob_to_table(BytesIO(sumo.get(query)), cols_to_read)
     except (PermanentError, ConnectionError):
         time.sleep(0.5)
-        table = get_object(object_id, sumo)
+        table = get_object(object_id, cols_to_read, sumo)
 
     return table
 
 
-def arrow_to_table(blob_object) -> pa.Table:
-    """Reads sumo blob into pandas dataframe
-    args:
-    blob_object (dict): the object to read
-    pa.Table: the read results
+def blob_to_table(blob_object, columns) -> pa.Table:
+    """Read stored blob into arrow table
+
+    Args:
+        blob_object (bytes): the object to convert
+        columns (list): the columns to read from object
+
+    Returns:
+        pa.Table: the results stored as pyarrow table
     """
     logger = init_logging(__name__ + ".arrow_to_table")
 
     try:
-        table = pq.read_table(pa.BufferReader(blob_object))
-    except pa.lib.ArrowInvalid:
+        frame = pd.read_csv(blob_object)
+        logger.debug(
+            "Extracting from pandas dataframe with these columns %s", frame.columns
+        )
         try:
-            table = feather.read_table(pa.BufferReader(blob_object))
+            table = pa.Table.from_pandas(frame[list(columns)])
+        except KeyError:
+            table = pa.Table.from_pandas(pd.DataFrame())
+        fformat = "csv"
+    except UnicodeDecodeError:
+        try:
+            table = feather.read_table(blob_object, columns=columns)
+            fformat = "feather"
         except pa.lib.ArrowInvalid:
-            table = pa.Table.from_pandas(pd.read_csv(BytesIO(blob_object)))
+            fformat = "parquet"
+            table = pq.read_table(blob_object, columns=columns)
+
+    logger.debug("Reading table as %s", fformat)
     logger.debug("Returning table with %s columns", len(table.column_names))
     return table
 
@@ -491,6 +528,7 @@ class MetadataSet:
         self._real_ids = set()
         self._uuids = set()
         self._table_index = table_index
+        self._base_meta = {}
         self._columns = ()
         self._logger = init_logging(__name__ + ".MetadataSet")
 
@@ -519,6 +557,15 @@ class MetadataSet:
         return self._table_index
 
     @property
+    def base_meta(self):
+        """Return attribute _base_meta
+
+        Returns:
+            dict: metadata to be used as basis for all aggregated objects
+        """
+        return self._base_meta
+
+    @property
     def agg_columns(self):
         """Return columns representing all realizations
 
@@ -539,26 +586,24 @@ class MetadataSet:
             realnr (int): realization nr
         """
         if (len(self._columns) > 0) & (len(self._columns) != len(columns)):
-            self._logger.info("Need to resolve columns")
             if len(self.agg_columns) < len(columns):
-                first = columns
-                second = self.agg_columns
+                to_keep = columns
+                to_compare = self.agg_columns
             else:
-                first = self.agg_columns
-                second = columns
-            diff = [col_name for col_name in first if col_name not in second]
+                to_keep = self.agg_columns
+                to_compare = columns
+            diff = [col_name for col_name in to_keep if col_name not in to_compare]
             if len(diff) > 0:
                 mess = (
-                    f"This/these columns are not in all reals {diff}"
-                    + f", something is different with real {realnr}"
+                    f", something is different with real {realnr} \n"
+                    + f"This/these columns are not found earlier {diff}"
                 )
-                # warnings.warn(mess)
-                self._logger.info(mess)
+                self._logger.warning(mess)
 
-            self.agg_columns = first
+            self.agg_columns = to_keep
         else:
             self._columns = columns
-            self._logger.info("Columns are good")
+            self._logger.debug("Columns are g ood")
 
     def aggid(self) -> str:
         """Return the hash of the sum of all the sorted(uuids)"""
@@ -571,7 +616,7 @@ class MetadataSet:
         """
         self._real_ids.add(real_nr)
 
-    def base_meta(self, metadata: dict) -> dict:
+    def gen_agg_meta(self, metadata: dict) -> dict:
         """Converts one metadata file into aggregated metadata
         args:
         metadata (dict): one valid metadatafile
@@ -579,15 +624,13 @@ class MetadataSet:
                                      aggregations to come
         """
         logger = init_logging(__name__ + ".base_meta")
-        agg_metadata = convert_metadata(
+        self._base_meta = convert_metadata(
             metadata, self.real_ids, self.parameter_dict, self.table_index
         )
-        agg_metadata["data"]["spec"]["columns"] = self.agg_columns
-        self._table_index = agg_metadata["data"]["table_index"]
+        self._base_meta["data"]["spec"]["columns"] = self.agg_columns
+        self._table_index = self._base_meta["data"]["table_index"]
 
         logger.debug("--\n Table index is: %s\n--------", self._table_index)
-
-        return agg_metadata
 
 
 def get_parent_id(result: dict) -> str:
@@ -634,12 +677,12 @@ def split_results_and_meta(results: list, **kwargs: dict) -> tuple:
             len(col_lengths),
             col_lengths,
         )
+    meta.gen_agg_meta(real_meta)
 
-    agg_meta = meta.base_meta(real_meta)
     split_tup = (
         parent_id,
         blob_ids,
-        agg_meta,
+        meta.base_meta,
         meta.table_index,
     )
     return split_tup
@@ -679,9 +722,14 @@ def reconstruct_table(
     """
     logger = init_logging(__name__ + ".reconstruct_table")
     logger.debug("Real %s", real_nr)
-    real_table = get_object(object_id, sumo)
+    real_table = get_object(object_id, required, sumo)
     rows = real_table.shape[0]
 
+    logger.debug(
+        "Table contains the following columns: %s (real: %i)",
+        real_table.column_names,
+        real_nr,
+    )
     real_table = real_table.add_column(0, "REAL", pa.array([np.int16(real_nr)] * rows))
     missing = [
         col_name for col_name in required if col_name not in real_table.column_names
@@ -691,9 +739,9 @@ def reconstruct_table(
     for miss in missing:
         real_table = real_table.add_column(0, miss, pa.array([None] * rows))
     logger.debug("Table created %s", type(real_table))
+
     # Sort to ensure that table has cols in same order even
     # when missing cols occur
-
     return real_table.select(sorted(real_table.column_names))
 
 
@@ -837,6 +885,7 @@ def prepare_object_launch(meta: dict, table, name, operation):
     full_meta["file"]["checksum_md5"] = md5
     full_meta["fmu"]["aggregation"]["id"] = uuid_from_string(md5)
     full_meta["fmu"]["aggregation"]["operation"] = operation
+    full_meta["data"]["format"] = "arrow"
     full_meta["data"]["spec"]["columns"] = table.column_names
     if operation == "collection":
         full_meta["data"]["table_index"].append("REAL")
@@ -893,7 +942,6 @@ def upload_table(
     logger.debug("id of table %s", id(table))
     logger.debug("operation from meta %s", meta["fmu"]["aggregation"])
     logger.debug("cols from meta %s", meta["data"]["spec"]["columns"])
-    meta["data"]["spec"]["columns"] = []
     path = f"/objects('{parent_id}')"
     rsp_code = "0"
     success_response = (200, 201)
@@ -934,7 +982,7 @@ def upload_table(
                 logger.warning(
                     "Exception %s while uploading metadata (%s)", exp, str(exp_type)
                 )
-        logger.info(f"%s uploaded", meta["file"]["relative_path"])
+        logger.info("uploaded %s", meta["file"]["relative_path"])
     else:
         logger.error("Cannot upload blob since no meta upload")
 
@@ -1065,11 +1113,7 @@ def convert_metadata(
     returns agg_metadata (dict): metadata dict that can be further used for aggregation
     """
     logger = init_logging(__name__ + ".convert_metadata")
-    logger.info(
-        "Table index going in %s, but input index is %s",
-        single_metadata["data"]["table_index"],
-        table_index,
-    )
+
     agg_metadata = single_metadata.copy()
     try:
         del agg_metadata["_sumo"]
