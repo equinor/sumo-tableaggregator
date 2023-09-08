@@ -474,26 +474,24 @@ def get_object(object_id: str, cols_to_read: list, sumo: SumoClient) -> pa.Table
         pa.Table: the object as pyarrow
     """
     query = f"/objects('{object_id}')/blob"
-    try:
-        table = blob_to_table(BytesIO(sumo.get(query)), cols_to_read)
-    except (PermanentError, ConnectionError):
-        time.sleep(0.5)
-        table = get_object(object_id, cols_to_read, sumo)
+    file_path = f"{object_id}.parquet"
+    if not os.path.isfile(file_path):
+        table = blob_to_table(BytesIO(sumo.get(query)))
+        pq.write_table(table, file_path)
 
-    return table
+    return pq.read_table(file_path, columns=cols_to_read)
 
 
-def blob_to_table(blob_object, columns) -> pa.Table:
+def blob_to_table(blob_object) -> pa.Table:
     """Read stored blob into arrow table
 
     Args:
         blob_object (bytes): the object to convert
-        columns (list): the columns to read from object
 
     Returns:
         pa.Table: the results stored as pyarrow table
     """
-    logger = init_logging(__name__ + ".arrow_to_table")
+    logger = init_logging(__name__ + ".blob_to_table")
 
     try:
         frame = pd.read_csv(blob_object)
@@ -501,20 +499,19 @@ def blob_to_table(blob_object, columns) -> pa.Table:
             "Extracting from pandas dataframe with these columns %s", frame.columns
         )
         try:
-            table = pa.Table.from_pandas(frame[list(columns)])
+            table = pa.Table.from_pandas(frame)
         except KeyError:
             table = pa.Table.from_pandas(pd.DataFrame())
         fformat = "csv"
     except UnicodeDecodeError:
         try:
-            table = feather.read_table(blob_object, columns=columns)
+            table = feather.read_table(blob_object)
             fformat = "feather"
         except pa.lib.ArrowInvalid:
             fformat = "parquet"
-            table = pq.read_table(blob_object, columns=columns)
+            table = pq.read_table(blob_object)
 
-    logger.debug("Reading table as %s", fformat)
-    logger.debug("Returning table with %s columns", len(table.column_names))
+    logger.debug("Reading table read from %s as arrow", fformat)
     return table
 
 
