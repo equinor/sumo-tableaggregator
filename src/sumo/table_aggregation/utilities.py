@@ -479,7 +479,7 @@ def get_object(object_id: str, cols_to_read: list, sumo: SumoClient) -> pa.Table
         table = blob_to_table(BytesIO(sumo.get(query)))
         pq.write_table(table, file_path)
 
-    return pq.read_table(file_path, columns=cols_to_read)
+    return pq.read_table(file_path, columns=list(cols_to_read))
 
 
 def blob_to_table(blob_object) -> pa.Table:
