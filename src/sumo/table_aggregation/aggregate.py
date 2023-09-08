@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 from sumo.wrapper import SumoClient
 import sumo.table_aggregation.utilities as ut
+from sumo.table_aggregation._tidy import main as clean
 
 
 class AggregationBasics:
@@ -182,6 +183,8 @@ class TableAggregator(AggregationBasics):
         for list_seg in self.columns:
             self.aggregate(list_seg)
             self.upload()
+
+    clean()
 
 
 class AggregationRunner(AggregationBasics):
