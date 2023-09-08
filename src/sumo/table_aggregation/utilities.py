@@ -1009,6 +1009,7 @@ def upload_stats(
                 operation,
             )
         )
+    logger.debug("Adding %i tasks", len(tasks))
     return tasks
 
 
@@ -1048,12 +1049,11 @@ async def extract_and_upload(
     for col_name in table.column_names:
         if col_name in (neccessaries + unneccessaries):
             continue
-        table_dict = {}
         logger.debug("Preparing %s", col_name)
         keep_cols = neccessaries + [col_name]
         logger.debug("Columns to pass through %s", keep_cols)
-        export_frame = table.select(keep_cols)
-        table_dict[col_name] = export_frame
+        export_table = table.select(keep_cols)
+        table_dict[col_name] = export_table
         tasks.append(
             call_parallel(
                 loop,
@@ -1061,7 +1061,7 @@ async def extract_and_upload(
                 upload_table,
                 sumo,
                 parent_id,
-                export_frame,
+                export_table,
                 col_name,
                 meta_stub,
                 "collection",
@@ -1069,7 +1069,6 @@ async def extract_and_upload(
         )
 
         count += 1
-
     tasks.extend(
         upload_stats(
             sumo,
