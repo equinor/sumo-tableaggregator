@@ -808,57 +808,59 @@ def do_stats(frame, index, col_name, aggfunc, aggname):
 
 
 @timethis("multiprocessing")
-@memcount()
 def make_stat_aggregations(
-    col_name: str,
-    table: pa.Table,
+    table_dict: dict,
     table_index: Union[list, str],
-    # aggfuncs: list = ("mean", "min", "max", p10, p90),
+    aggfuncs: Union[str, dict] = "standards",
 ):
-    """Return statistical aggregations from pyarrow table
-
-    Args:
-        col_name (str): name of column to perform stats on
-        table (pa.Table): The table to do the stats from
-        table_index (Union[list, str]): name of table index columns
-
-    Returns:
-        tuple: results from statistical calculations
+    """Make statistical aggregations from dictionary of tables
+    args
+    table_dict (dict): data to process
+    table_index (list): data to aggregate over N
+    aggfuncs (list): statistical aggregations to include
+    logger  = init_logging(__name__ + ".table_to_bytes")st): what aggregations to process
     """
     logger = init_logging(__name__ + ".make_stat_aggregations")
     logger.debug("Running with %s cpus", os.cpu_count())
-    aggdict = {"mean": "mean", "min": "min", "max": "max", "p10": p10, "p90": p90}
+    if aggfuncs == "standards":
+        aggfuncs = {"mean": "mean", "min": "min", "max": "max", "p10": p10, "p90": p90}
+    elif isinstance(aggfuncs, dict):
+        logger.info("User input not standards: %s", aggfuncs)
+    else:
+        logger.error("Wrong input %s", aggfuncs)
+        raise ValueError("Wrong input to multiprocessing, need to stop!")
     stat_input = []
-
-    logger.debug("----converting to pandas---")
-    # logger.debug(table.schema)
-    frame = deepcopy(
-        table.to_pandas(
-            ignore_metadata=True,
-        )
-    )
-    if frame[col_name].dtype != object:
-        logger.debug("%s is not numeric, will not permform stats", col_name)
-
+    for col_name, table in table_dict.items():
+        logger.debug("Calculating statistics on vector %s", col_name)
+        logger.debug("Table index %s", table_index)
         logger.debug(
-            "Nr of columns after conversion to pandas df %s (shape %s)",
-            len(frame.columns),
+            "Columns before conversion to pandas df %s (size %s)",
+            table.column_names,
+            table.shape,
+        )
+        logger.debug(table.schema)
+        frame = deepcopy(
+            table.to_pandas(
+                ignore_metadata=True,
+            )
+        )
+        logger.debug(
+            "Columns after conversion to pandas df %s (size %s)",
+            frame.columns,
             frame.shape,
         )
         stat_input.extend(
             [
                 (frame, table_index, col_name, aggfunc, aggname)
-                for aggname, aggfunc in aggdict.items()
+                for aggname, aggfunc in aggfuncs.items()
             ]
         )
 
-        logger.debug("Submitting %s tasks to multprocessing", len(stat_input))
+    logger.debug("Submitting %s tasks to multprocessing", len(stat_input))
 
-        stats = pa.Table.from_arrays(pa.array([]))
-        with get_context("spawn").Pool() as pool:
-            stats = pool.starmap(do_stats, stat_input)
-    else:
-        stats = ()
+    stats = pa.Table.from_arrays(pa.array([]))
+    with get_context("spawn").Pool() as pool:
+        stats = pool.starmap(do_stats, stat_input)
     return stats
 
 
@@ -1042,7 +1044,7 @@ async def extract_and_upload(
         parent_id (str): object id of parent object
         table (pa.Table): The table to split
         table_index (list): the columns in the table defining the index
-        meta_stub (dict): a metadata stub to be used for generating metadata for all split results
+        meta_stub (dict): metadata stub for generating metadata for all split results
         loop (asyncio.event_loop): event loop to be used for upload
         executor (ThreadpoolExecutor): Executor for event loop
     """
@@ -1054,6 +1056,7 @@ async def extract_and_upload(
     neccessaries = table_index + ["REAL"]
     unneccessaries = ["YEARS", "SECONDS", "ENSEMBLE"]
     logger.debug("This is the index to keep %s", neccessaries)
+    table_dict = {}
     # task scheduler
     tasks = generate_table_index_values(
         sumo, parent_id, table, table_index, meta_stub, loop, executor
@@ -1080,18 +1083,20 @@ async def extract_and_upload(
                 "collection",
             )
         )
-        tasks.extend(
-            upload_stats(
-                sumo,
-                parent_id,
-                make_stat_aggregations(col_name, export_frame, table_index),
-                meta_stub,
-                loop,
-                executor,
-            )
-        )
 
         count += 1
+
+    tasks.extend(
+        upload_stats(
+            sumo,
+            parent_id,
+            make_stat_aggregations(table_dict, table_index),
+            meta_stub,
+            loop,
+            executor,
+        )
+    )
+
     logger.debug("Submitting: %s additional tasks", len(table_dict.keys()))
 
     logger.debug("Tasks to run %s ", len(tasks))
