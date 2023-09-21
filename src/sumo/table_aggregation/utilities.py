@@ -905,6 +905,22 @@ async def call_parallel(loop, executor, func, *args):
     return await loop.run_in_executor(executor, func, *args)
 
 
+def cast_correctly(table):
+    """Cast table with correct datypes
+
+    Args:
+        table (pa.Table): the table to modify
+
+    Returns:
+        pa.Table: table corrected
+    """
+    scheme = []
+    standards = {"DATE": pa.timestamp("ms"), "REAL": pa.uint16()}
+    for column_name in table.column_names:
+        scheme.append((column_name, standards.get(column_name, pa.float32())))
+    return table.cast(pa.schema(scheme))
+
+
 def upload_table(
     sumo: SumoClient, parent_id: str, table: pa.Table, name: str, meta: dict, operation
 ):
@@ -924,8 +940,9 @@ def upload_table(
     logger.debug("Uploading %s-%s", name, operation)
     logger.debug("Columns in table %s", table.column_names)
     logger.debug("Uploading to parent with id %s", parent_id)
-    byte_string, meta = prepare_object_launch(meta, table, name, operation)
-    logger.debug("id of table %s", id(table))
+    byte_string, meta = prepare_object_launch(
+        meta, cast_correctly(table), name, operation
+    )
     logger.debug("operation from meta %s", meta["fmu"]["aggregation"])
     logger.debug("cols from meta %s", meta["data"]["spec"]["columns"])
     path = f"/objects('{parent_id}')"
