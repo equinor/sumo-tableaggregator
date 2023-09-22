@@ -784,7 +784,10 @@ def do_stats(frame, index, col_name, aggfunc, aggname):
     logger = init_logging(__name__ + ".do_stats")
     # frame = table.to_pandas()
     logger.debug("Nr of columns prior to groupby: %s", len(frame.columns))
-    stat = frame.groupby(index)[col_name].agg(aggfunc).to_frame().reset_index()
+    try:
+        stat = frame.groupby(index)[col_name].agg(aggfunc).to_frame().reset_index()
+    except (TypeError, NotImplementedError):
+        stat = pd.DataFrame()
     table = pa.Table.from_pandas(stat)
     output = (aggname, table)
     logger.debug("%s %s", output[0], len(output[1].column_names))
@@ -916,8 +919,12 @@ def cast_correctly(table):
     """
     scheme = []
     standards = {"DATE": pa.timestamp("ms"), "REAL": pa.uint16()}
-    for column_name in table.column_names:
-        scheme.append((column_name, standards.get(column_name, pa.float32())))
+    for col_scheme in table.schema:
+        column_name = col_scheme.name
+        if col_scheme.type == pa.string():
+            scheme.append((column_name, pa.string()))
+        else:
+            scheme.append((column_name, standards.get(column_name, pa.float32())))
     return table.cast(pa.schema(scheme))
 
 

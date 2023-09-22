@@ -1,4 +1,4 @@
-"""Testing of classe TableAggregator"""
+"""Testing of class TableAggregator"""
 import logging
 from sumo.table_aggregation import TableAggregator
 from sumo.table_aggregation.utilities import timethis
