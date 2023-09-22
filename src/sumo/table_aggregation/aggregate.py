@@ -184,7 +184,7 @@ class TableAggregator(AggregationBasics):
             self.aggregate(list_seg)
             self.upload()
 
-    clean()
+        # clean()
 
 
 class AggregationRunner(AggregationBasics):
@@ -197,11 +197,10 @@ class AggregationRunner(AggregationBasics):
             uuid (str): the uuid of the case
             env (str, optional): name of the sumo environment for case, default prod
         """
-        super().__init__(env, token)
+        super().__init__(uuid, env, token)
         self._logger = ut.init_logging(__name__ + ".AggregationRunner")
         self._env = env
         self._uuid = uuid
-        self._sumo = SumoClient(env)
 
     def run(self) -> None:
         """Run all aggregation related to case"""
@@ -213,6 +212,8 @@ class AggregationRunner(AggregationBasics):
             for name, tag_list in names_w_tags.items():
                 self._logger.info("\nData.name: %s", name)
                 for tag in tag_list:
+                    if tag in ["summary", "gruptree"]:
+                        continue
                     self._logger.info("  data.tagname: %s", tag)
                     aggregator = TableAggregator(
                         self._uuid,
