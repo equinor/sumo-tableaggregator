@@ -5,8 +5,18 @@ import sumo.table_aggregation.utilities as ut
 
 
 def init_sumo_env(env, token: str = None):
+    """Initializes sumo environment
+
+    Args:
+        env (str): environment to run with
+        token (str, optional): token to pass in. Defaults to None.
+
+    Returns:
+        SumoClient: The client for requested environment
+    """
     logger = ut.init_logging(__file__ + ".init_sumo_env")
     sumo = SumoClient(env, token)
+    logger.info("Init of client for %s", env)
     return sumo
 
 
