@@ -31,28 +31,70 @@ def collect_case_table_name_and_tag(uuid, sumo):
         dict: dict of dicts with first key as iteration, value as dict with
               name as key and value as list of tags
     """
-    names_and_tags = {}
+    its_names_and_tags = {}
     iterations = ut.query_sumo_iterations(sumo, uuid)
     for iter_name in iterations:
-        names_and_tags[iter_name] = ut.query_for_name_and_tags(sumo, uuid, iter_name)
-    return names_and_tags
+        its_names_and_tags[iter_name] = ut.query_for_name_and_tags(
+            sumo, uuid, iter_name
+        )
+    return its_names_and_tags
 
 
-def dispath_info(uuid, name, tag, iteration, sumo, segment_length, **kwargs):
+def generate_dispatch_info_per_combination(
+    identifier, sumo, segment_length=1000, **kwargs
+):
+    """Generate list of job specicifations for one given table combination
+
+    Args:
+        identifier (tuple): tuple containing uuid, table name, table tagname, and iter name
+        sumo (SumoClient): client to environment that contains case
+        segment_length (int, optional): length to segment columns for table on. Defaults to 1000.
+
+    Returns:
+        list: list with combinations for job dispatch for one table combination
+    """
     logger = ut.init_logging(__file__ + ".dispatch_info")
+    uuid, name, tag, iteration = identifier
+    table_dispatch_info = []
+    table_specifics = {}
     (
-        object_ids,
+        table_specifics["object_ids"],
         meta,
         table_index,
     ) = ut.query_for_table(sumo, uuid, name, tag, iteration, **kwargs)
-    table_index = meta["data"]["spec"]["table_index"]
+    table_specifics["table_index"] = table_index
     segments = ut.split_list(meta["data"]["spec"]["columns"], segment_length)
-    segs_w_table_index = []
+    segs_specifics = table_specifics.copy()
     for segment in segments:
         seg_set = set(segment)
         try:
             seg_set.update(table_index)
         except TypeError:
             logger.warning("Cannot add index, is %s", table_index)
-        segs_w_table_index.append(tuple(seg_set))
-    return tuple(segs_w_table_index)
+        segs_specifics["columns"] = seg_set
+        table_dispatch_info.append(segs_specifics)
+    return table_dispatch_info
+
+
+def generate_dispatch_info(uuid, env):
+    """Generate dispatch info for all batch jobs to run
+
+    Args:
+        uuid (str): case uuid
+        env (str): name of sumo env to read from
+
+    Returns:
+        list: list of all table combinations
+    """
+    sumo = init_sumo_env(env)
+    its_names_and_tags = collect_case_table_name_and_tag(uuid, sumo)
+    dispatch_info = []
+    for iter_name, table_info in its_names_and_tags.items():
+        for table_name, tags in table_info.items():
+            for tag_name in tags:
+                table_identifier = (uuid, table_name, tag_name, iter_name)
+
+                dispatch_info.extend(
+                    generate_dispatch_info_per_combination(table_identifier, sumo)
+                )
+    return dispatch_info
