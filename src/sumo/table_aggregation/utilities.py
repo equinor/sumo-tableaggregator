@@ -474,26 +474,24 @@ def get_object(object_id: str, cols_to_read: list, sumo: SumoClient) -> pa.Table
         pa.Table: the object as pyarrow
     """
     query = f"/objects('{object_id}')/blob"
-    try:
-        table = blob_to_table(BytesIO(sumo.get(query)), cols_to_read)
-    except (PermanentError, ConnectionError):
-        time.sleep(0.5)
-        table = get_object(object_id, cols_to_read, sumo)
+    file_path = f"{object_id}.parquet"
+    if not os.path.isfile(file_path):
+        table = blob_to_table(BytesIO(sumo.get(query)))
+        pq.write_table(table, file_path)
 
-    return table
+    return pq.read_table(file_path, columns=list(cols_to_read))
 
 
-def blob_to_table(blob_object, columns) -> pa.Table:
+def blob_to_table(blob_object) -> pa.Table:
     """Read stored blob into arrow table
 
     Args:
         blob_object (bytes): the object to convert
-        columns (list): the columns to read from object
 
     Returns:
         pa.Table: the results stored as pyarrow table
     """
-    logger = init_logging(__name__ + ".arrow_to_table")
+    logger = init_logging(__name__ + ".blob_to_table")
 
     try:
         frame = pd.read_csv(blob_object)
@@ -501,20 +499,19 @@ def blob_to_table(blob_object, columns) -> pa.Table:
             "Extracting from pandas dataframe with these columns %s", frame.columns
         )
         try:
-            table = pa.Table.from_pandas(frame[list(columns)])
+            table = pa.Table.from_pandas(frame)
         except KeyError:
             table = pa.Table.from_pandas(pd.DataFrame())
         fformat = "csv"
     except UnicodeDecodeError:
         try:
-            table = feather.read_table(blob_object, columns=columns)
+            table = feather.read_table(blob_object)
             fformat = "feather"
         except pa.lib.ArrowInvalid:
             fformat = "parquet"
-            table = pq.read_table(blob_object, columns=columns)
+            table = pq.read_table(blob_object)
 
-    logger.debug("Reading table as %s", fformat)
-    logger.debug("Returning table with %s columns", len(table.column_names))
+    logger.debug("Reading table read from %s as arrow", fformat)
     return table
 
 
@@ -633,25 +630,13 @@ class MetadataSet:
         logger.debug("--\n Table index is: %s\n--------", self._table_index)
 
 
-def get_parent_id(result: dict) -> str:
-    """Fetch parent id from one elastic search hit
-    args:
-    result (dict): one hit
-    returns parent_id
-    """
-    parent_id = result["_source"]["_sumo"]["parent_object"]
-    return parent_id
-
-
 def split_results_and_meta(results: list, **kwargs: dict) -> tuple:
     """split hits from sumo query
     results (list): query_results["hits"]["hist"]
-    returns tuple: tuple with parent id, object ids, meta stub, all real numbers
+    returns tuple: object ids, meta stub, all real numbers
                    and global variables dict for all realizations
     """
     logger = init_logging(__name__ + ".split_result_and_meta")
-    parent_id = get_parent_id(results[0])
-    logger.debug("Parent id %s", parent_id)
     col_lengths = set()
     meta = MetadataSet(kwargs.get("table_index", None))
     blob_ids = {}
@@ -680,7 +665,6 @@ def split_results_and_meta(results: list, **kwargs: dict) -> tuple:
     meta.gen_agg_meta(real_meta)
 
     split_tup = (
-        parent_id,
         blob_ids,
         meta.base_meta,
         meta.table_index,
@@ -800,7 +784,10 @@ def do_stats(frame, index, col_name, aggfunc, aggname):
     logger = init_logging(__name__ + ".do_stats")
     # frame = table.to_pandas()
     logger.debug("Nr of columns prior to groupby: %s", len(frame.columns))
-    stat = frame.groupby(index)[col_name].agg(aggfunc).to_frame().reset_index()
+    try:
+        stat = frame.groupby(index)[col_name].agg(aggfunc).to_frame().reset_index()
+    except (TypeError, NotImplementedError):
+        stat = pd.DataFrame()
     table = pa.Table.from_pandas(stat)
     output = (aggname, table)
     logger.debug("%s %s", output[0], len(output[1].column_names))
@@ -808,57 +795,59 @@ def do_stats(frame, index, col_name, aggfunc, aggname):
 
 
 @timethis("multiprocessing")
-@memcount()
 def make_stat_aggregations(
-    col_name: str,
-    table: pa.Table,
+    table_dict: dict,
     table_index: Union[list, str],
-    # aggfuncs: list = ("mean", "min", "max", p10, p90),
+    aggfuncs: Union[str, dict] = "standards",
 ):
-    """Return statistical aggregations from pyarrow table
-
-    Args:
-        col_name (str): name of column to perform stats on
-        table (pa.Table): The table to do the stats from
-        table_index (Union[list, str]): name of table index columns
-
-    Returns:
-        tuple: results from statistical calculations
+    """Make statistical aggregations from dictionary of tables
+    args
+    table_dict (dict): data to process
+    table_index (list): data to aggregate over N
+    aggfuncs (list): statistical aggregations to include
+    logger  = init_logging(__name__ + ".table_to_bytes")st): what aggregations to process
     """
     logger = init_logging(__name__ + ".make_stat_aggregations")
     logger.debug("Running with %s cpus", os.cpu_count())
-    aggdict = {"mean": "mean", "min": "min", "max": "max", "p10": p10, "p90": p90}
+    if aggfuncs == "standards":
+        aggfuncs = {"mean": "mean", "min": "min", "max": "max", "p10": p10, "p90": p90}
+    elif isinstance(aggfuncs, dict):
+        logger.info("User input not standards: %s", aggfuncs)
+    else:
+        logger.error("Wrong input %s", aggfuncs)
+        raise ValueError("Wrong input to multiprocessing, need to stop!")
     stat_input = []
-
-    logger.debug("----converting to pandas---")
-    # logger.debug(table.schema)
-    frame = deepcopy(
-        table.to_pandas(
-            ignore_metadata=True,
-        )
-    )
-    if frame[col_name].dtype != object:
-        logger.debug("%s is not numeric, will not permform stats", col_name)
-
+    for col_name, table in table_dict.items():
+        logger.debug("Calculating statistics on vector %s", col_name)
+        logger.debug("Table index %s", table_index)
         logger.debug(
-            "Nr of columns after conversion to pandas df %s (shape %s)",
-            len(frame.columns),
+            "Columns before conversion to pandas df %s (size %s)",
+            table.column_names,
+            table.shape,
+        )
+        logger.debug(table.schema)
+        frame = deepcopy(
+            table.to_pandas(
+                ignore_metadata=True,
+            )
+        )
+        logger.debug(
+            "Columns after conversion to pandas df %s (size %s)",
+            frame.columns,
             frame.shape,
         )
         stat_input.extend(
             [
                 (frame, table_index, col_name, aggfunc, aggname)
-                for aggname, aggfunc in aggdict.items()
+                for aggname, aggfunc in aggfuncs.items()
             ]
         )
 
-        logger.debug("Submitting %s tasks to multprocessing", len(stat_input))
+    logger.debug("Submitting %s tasks to multprocessing", len(stat_input))
 
-        stats = pa.Table.from_arrays(pa.array([]))
-        with get_context("spawn").Pool() as pool:
-            stats = pool.starmap(do_stats, stat_input)
-    else:
-        stats = ()
+    stats = pa.Table.from_arrays(pa.array([]))
+    with get_context("spawn").Pool() as pool:
+        stats = pool.starmap(do_stats, stat_input)
     return stats
 
 
@@ -919,6 +908,26 @@ async def call_parallel(loop, executor, func, *args):
     return await loop.run_in_executor(executor, func, *args)
 
 
+def cast_correctly(table):
+    """Cast table with correct datypes
+
+    Args:
+        table (pa.Table): the table to modify
+
+    Returns:
+        pa.Table: table corrected
+    """
+    scheme = []
+    standards = {"DATE": pa.timestamp("ms"), "REAL": pa.uint16()}
+    for col_scheme in table.schema:
+        column_name = col_scheme.name
+        if col_scheme.type == pa.string():
+            scheme.append((column_name, pa.string()))
+        else:
+            scheme.append((column_name, standards.get(column_name, pa.float32())))
+    return table.cast(pa.schema(scheme))
+
+
 def upload_table(
     sumo: SumoClient, parent_id: str, table: pa.Table, name: str, meta: dict, operation
 ):
@@ -938,8 +947,9 @@ def upload_table(
     logger.debug("Uploading %s-%s", name, operation)
     logger.debug("Columns in table %s", table.column_names)
     logger.debug("Uploading to parent with id %s", parent_id)
-    byte_string, meta = prepare_object_launch(meta, table, name, operation)
-    logger.debug("id of table %s", id(table))
+    byte_string, meta = prepare_object_launch(
+        meta, cast_correctly(table), name, operation
+    )
     logger.debug("operation from meta %s", meta["fmu"]["aggregation"])
     logger.debug("cols from meta %s", meta["data"]["spec"]["columns"])
     path = f"/objects('{parent_id}')"
@@ -1023,6 +1033,7 @@ def upload_stats(
                 operation,
             )
         )
+    logger.debug("Adding %i tasks", len(tasks))
     return tasks
 
 
@@ -1042,7 +1053,7 @@ async def extract_and_upload(
         parent_id (str): object id of parent object
         table (pa.Table): The table to split
         table_index (list): the columns in the table defining the index
-        meta_stub (dict): a metadata stub to be used for generating metadata for all split results
+        meta_stub (dict): metadata stub for generating metadata for all split results
         loop (asyncio.event_loop): event loop to be used for upload
         executor (ThreadpoolExecutor): Executor for event loop
     """
@@ -1054,6 +1065,7 @@ async def extract_and_upload(
     neccessaries = table_index + ["REAL"]
     unneccessaries = ["YEARS", "SECONDS", "ENSEMBLE"]
     logger.debug("This is the index to keep %s", neccessaries)
+    table_dict = {}
     # task scheduler
     tasks = generate_table_index_values(
         sumo, parent_id, table, table_index, meta_stub, loop, executor
@@ -1061,12 +1073,11 @@ async def extract_and_upload(
     for col_name in table.column_names:
         if col_name in (neccessaries + unneccessaries):
             continue
-        table_dict = {}
         logger.debug("Preparing %s", col_name)
         keep_cols = neccessaries + [col_name]
         logger.debug("Columns to pass through %s", keep_cols)
-        export_frame = table.select(keep_cols)
-        table_dict[col_name] = export_frame
+        export_table = table.select(keep_cols)
+        table_dict[col_name] = export_table
         tasks.append(
             call_parallel(
                 loop,
@@ -1074,24 +1085,25 @@ async def extract_and_upload(
                 upload_table,
                 sumo,
                 parent_id,
-                export_frame,
+                export_table,
                 col_name,
                 meta_stub,
                 "collection",
             )
         )
-        tasks.extend(
-            upload_stats(
-                sumo,
-                parent_id,
-                make_stat_aggregations(col_name, export_frame, table_index),
-                meta_stub,
-                loop,
-                executor,
-            )
-        )
 
         count += 1
+    tasks.extend(
+        upload_stats(
+            sumo,
+            parent_id,
+            make_stat_aggregations(table_dict, table_index),
+            meta_stub,
+            loop,
+            executor,
+        )
+    )
+
     logger.debug("Submitting: %s additional tasks", len(table_dict.keys()))
 
     logger.debug("Tasks to run %s ", len(tasks))

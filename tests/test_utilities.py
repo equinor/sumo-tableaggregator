@@ -226,3 +226,24 @@ def test_parameter_dict(query_results, sumo, case_name):
     #         assert all(
     #             isinstance(real_nr, int) for real_nr in var_dict
     #         ), f"Not all real_nrs for {var_name} are int {group_dict.keys()}"
+
+
+def test_cast_correctly():
+    """Test cast correctly function"""
+    data = [
+        {"DATE": "2022-12-02", "REAL": 5, "something": 2.45},
+        {"DATE": "2023-01-10", "REAL": 7, "something": -123.45},
+    ]
+    table = ut.cast_correctly(pa.Table.from_pylist(data))
+    date_type = table.schema[0].type
+    date_name = table.schema[0].name
+    assert date_type == pa.timestamp(
+        "ms"
+    ), f"{date_name} is {date_type}, should be timestamp[ms]"
+    real_type = table.schema[1].type
+    real_name = table.schema[1].name
+    assert real_type == pa.uint16(), f"{real_name} is {real_type}, should be int16"
+    rest_type = table.schema[2].type
+    assert (
+        rest_type == pa.float32()
+    ), f"all others are {rest_type}, should be single (float32)"

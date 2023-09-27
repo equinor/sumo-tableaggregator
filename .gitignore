@@ -133,3 +133,5 @@ dmypy.json
 
 # Vs code setup folder
 #.vscode/
+
+*.parquet

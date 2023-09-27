@@ -130,9 +130,7 @@ def fixture_query_input(sumo, case_uuid, name="summary"):
     case_uuid (str): name of case
     name (str): name of table
     """
-    query_input = ut.query_sumo(
-        sumo, case_uuid, name, "eclipse", "iter-0", content="timeseries"
-    )
+    query_input = ut.query_sumo(sumo, case_uuid, name, "eclipse", "iter-0")
     return query_input
 
 
