@@ -47,9 +47,9 @@ def generate_dispatch_info_per_combination(
     """Generate list of job specicifations for one given table combination
 
     Args:
-        identifier (tuple): tuple containing uuid, table name, table tagname, and iter name
+        identifier (tuple): tuple with uuid, table name, table tagname, and iter name
         sumo (SumoClient): client to environment that contains case
-        segment_length (int, optional): length to segment columns for table on. Defaults to 1000.
+        segment_length (int, optional): length of columns segments for table. Default 1000.
 
     Returns:
         list: list with combinations for job dispatch for one table combination
@@ -97,12 +97,20 @@ def generate_dispatch_info(uuid, env, token=None):
                 table_identifier = (uuid, table_name, tag_name, iter_name)
 
                 dispatch_info.extend(
-                    generate_dispatch_info_per_combination(table_identifier, sumo)
+                    generate_dispatch_info_per_combination(
+                        table_identifier, sumo, seg_length
+                    )
                 )
     return dispatch_info
 
 
 def aggregate_and_upload(dispatch_info, sumo):
+    """aggregate based on dispatch info
+
+    Args:
+        dispatch_info (dict): dictionary with all run info for one job
+        sumo (SumoClient): client for given sumo environment
+    """
     uuid = dispatch_info["uuid"]
     table_index = dispatch_info["table_index"]
     object_ids = dispatch_info["object_ids"]
