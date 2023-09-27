@@ -1,5 +1,6 @@
 """Dispatches jobs to to radix"""
-
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from sumo.wrapper import SumoClient
 import sumo.table_aggregation.utilities as ut
 
@@ -56,7 +57,7 @@ def generate_dispatch_info_per_combination(
     logger = ut.init_logging(__file__ + ".dispatch_info")
     uuid, name, tag, iteration = identifier
     table_dispatch_info = []
-    table_specifics = {}
+    table_specifics = {"uuid": uuid}
     (
         table_specifics["object_ids"],
         meta,
@@ -64,15 +65,16 @@ def generate_dispatch_info_per_combination(
     ) = ut.query_for_table(sumo, uuid, name, tag, iteration, **kwargs)
     table_specifics["table_index"] = table_index
     segments = ut.split_list(meta["data"]["spec"]["columns"], segment_length)
-    segs_specifics = table_specifics.copy()
+    seg_specifics = table_specifics.copy()
     for segment in segments:
         seg_set = set(segment)
         try:
             seg_set.update(table_index)
         except TypeError:
             logger.warning("Cannot add index, is %s", table_index)
-        segs_specifics["columns"] = seg_set
-        table_dispatch_info.append(segs_specifics)
+        seg_specifics["columns"] = list(seg_set)
+        seg_specifics["base_meta"] = meta
+        table_dispatch_info.append(seg_specifics)
     return table_dispatch_info
 
 
@@ -97,4 +99,34 @@ def generate_dispatch_info(uuid, env):
                 dispatch_info.extend(
                     generate_dispatch_info_per_combination(table_identifier, sumo)
                 )
-    return dispatch_info
+    return {"jobs": dispatch_info}
+
+
+def aggregate_and_upload(dispatch_info, sumo):
+    uuid = dispatch_info["uuid"]
+    table_index = dispatch_info["table_index"]
+    object_ids = dispatch_info["object_ids"]
+    columns = dispatch_info["columns"]
+    loop = asyncio.get_event_loop()
+    aggregated = None
+    if (table_index is not None) and (len(table_index) > 0):
+        aggregated = loop.run_until_complete(
+            ut.aggregate_arrow(
+                object_ids,
+                sumo,
+                columns,
+                loop,
+            )
+        )
+        executor = ThreadPoolExecutor()
+        loop.run_until_complete(
+            ut.extract_and_upload(
+                sumo,
+                uuid,
+                aggregated,
+                table_index,
+                base_meta,
+                loop,
+                executor,
+            )
+        )
