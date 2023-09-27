@@ -1,6 +1,7 @@
 """Tests for module dispath"""
 import time
 import pytest
+import json
 from sumo.table_aggregation.utilities import timethis
 from sumo.table_aggregation import dispatch
 
@@ -48,7 +49,8 @@ def test_generate_dispatch_info_per_combination(uuid, sumo):
     """
     combination = (uuid, "SNORRE", "rft", "iter-0")
     results = dispatch.generate_dispatch_info_per_combination(combination, sumo)
-    print(results)
+    print(results[0])
+    jason_object = json.dumps(results[0])
 
 
 # @timethis("dispatchlist")
@@ -64,4 +66,5 @@ def test_generate_dispatch_info(uuid):
     stop = time.perf_counter()
     print("--> Timex (%s): %s s", round(stop - start, 2))
     found_len = len(results)
+    print(results)
     assert found_len == nr_batch_jobs, f"found {found_len}, should be {nr_batch_jobs}"
