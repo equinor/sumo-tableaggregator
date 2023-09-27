@@ -99,7 +99,7 @@ def generate_dispatch_info(uuid, env):
                 dispatch_info.extend(
                     generate_dispatch_info_per_combination(table_identifier, sumo)
                 )
-    return {"jobs": dispatch_info}
+    return dispatch_info
 
 
 def aggregate_and_upload(dispatch_info, sumo):
