@@ -107,6 +107,7 @@ def aggregate_and_upload(dispatch_info, sumo):
     table_index = dispatch_info["table_index"]
     object_ids = dispatch_info["object_ids"]
     columns = dispatch_info["columns"]
+    base_meta = dispatch_info["base_meta"]
     loop = asyncio.get_event_loop()
     aggregated = None
     if (table_index is not None) and (len(table_index) > 0):
