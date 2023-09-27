@@ -78,7 +78,7 @@ def generate_dispatch_info_per_combination(
     return table_dispatch_info
 
 
-def generate_dispatch_info(uuid, env):
+def generate_dispatch_info(uuid, env, token=None):
     """Generate dispatch info for all batch jobs to run
 
     Args:
@@ -88,7 +88,7 @@ def generate_dispatch_info(uuid, env):
     Returns:
         list: list of all table combinations
     """
-    sumo = init_sumo_env(env)
+    sumo = init_sumo_env(env, token)
     its_names_and_tags = collect_case_table_name_and_tag(uuid, sumo)
     dispatch_info = []
     for iter_name, table_info in its_names_and_tags.items():
