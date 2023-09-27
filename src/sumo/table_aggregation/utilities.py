@@ -1019,20 +1019,23 @@ def upload_stats(
 
     for item in stat_input:
         operation, table = item
-        name = table.column_names.pop()
-        tasks.append(
-            call_parallel(
-                loop,
-                executor,
-                upload_table,
-                sumo,
-                parent_id,
-                table,
-                name,
-                meta,
-                operation,
+        try:
+            name = table.column_names.pop()
+            tasks.append(
+                call_parallel(
+                    loop,
+                    executor,
+                    upload_table,
+                    sumo,
+                    parent_id,
+                    table,
+                    name,
+                    meta,
+                    operation,
+                )
             )
-        )
+        except IndexError:
+            logger.warning("Nothing to add, empty list!")
     logger.debug("Adding %i tasks", len(tasks))
     return tasks
 
