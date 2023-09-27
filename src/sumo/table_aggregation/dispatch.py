@@ -78,12 +78,13 @@ def generate_dispatch_info_per_combination(
     return table_dispatch_info
 
 
-def generate_dispatch_info(uuid, env, token=None):
+def generate_dispatch_info(uuid, env, token=None, seg_length=1000):
     """Generate dispatch info for all batch jobs to run
 
     Args:
         uuid (str): case uuid
         env (str): name of sumo env to read from
+        seg_length (str): length of columns to pass per batch job
 
     Returns:
         list: list of all table combinations
