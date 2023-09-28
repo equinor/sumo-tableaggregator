@@ -22,7 +22,7 @@ import pyarrow.compute as pc
 from pyarrow import feather
 import pyarrow.parquet as pq
 from sumo.wrapper import SumoClient
-from sumo.wrapper._request_error import PermanentError
+from sumo.wrapper._request_error import PermanentError, TransientError
 
 
 # inner psutil function
@@ -475,8 +475,16 @@ def get_object(object_id: str, cols_to_read: list, sumo: SumoClient) -> pa.Table
     """
     query = f"/objects('{object_id}')/blob"
     file_path = f"{object_id}.parquet"
+
     if not os.path.isfile(file_path):
-        table = blob_to_table(BytesIO(sumo.get(query)))
+        while 1:
+            try:
+                blob = sumo.get(query)
+                break
+            except TransientError:
+                time.sleep(5)
+
+        table = blob_to_table(BytesIO(blob))
         pq.write_table(table, file_path)
 
     return pq.read_table(file_path, columns=list(cols_to_read))
@@ -710,7 +718,7 @@ def reconstruct_table(
     rows = real_table.shape[0]
 
     logger.debug(
-        "Table contains the following columns: %s (real: %i)",
+        "Table contains the following columns: %s (real: %s)",
         real_table.column_names,
         real_nr,
     )
