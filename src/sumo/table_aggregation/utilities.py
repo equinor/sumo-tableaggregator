@@ -23,6 +23,7 @@ from pyarrow import feather
 import pyarrow.parquet as pq
 from sumo.wrapper import SumoClient
 from sumo.wrapper._request_error import PermanentError, TransientError
+from httpx import HTTPStatusError
 
 
 # inner psutil function
@@ -481,7 +482,7 @@ def get_object(object_id: str, cols_to_read: list, sumo: SumoClient) -> pa.Table
             try:
                 blob = sumo.get(query)
                 break
-            except (TransientError, ConnectionRefusedError):
+            except (TransientError, ConnectionRefusedError, HTTPStatusError):
                 time.sleep(5)
 
         table = blob_to_table(BytesIO(blob))
