@@ -481,7 +481,7 @@ def get_object(object_id: str, cols_to_read: list, sumo: SumoClient) -> pa.Table
             try:
                 blob = sumo.get(query)
                 break
-            except TransientError:
+            except (TransientError, ConnectionRefusedError):
                 time.sleep(5)
 
         table = blob_to_table(BytesIO(blob))
