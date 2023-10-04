@@ -73,6 +73,7 @@ def generate_dispatch_info_per_combination(
         except TypeError:
             logger.warning("Cannot add index, is %s", table_index)
         seg_specifics["columns"] = list(seg_set)
+        meta["data"]["spec"]["columns"] = []
         seg_specifics["base_meta"] = meta
         table_dispatch_info.append(seg_specifics)
     return table_dispatch_info
