@@ -478,12 +478,7 @@ def get_object(object_id: str, cols_to_read: list, sumo: SumoClient) -> pa.Table
     file_path = f"{object_id}.parquet"
 
     if not os.path.isfile(file_path):
-        while 1:
-            try:
-                blob = sumo.get(query)
-                break
-            except (TransientError, ConnectionRefusedError, HTTPStatusError):
-                time.sleep(5)
+        blob = sumo.get(query)
 
         table = blob_to_table(BytesIO(blob))
         pq.write_table(table, file_path)
