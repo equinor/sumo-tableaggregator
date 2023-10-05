@@ -399,7 +399,6 @@ def query_for_table(
     name: str,
     tag: str,
     iteration: str,
-    pit: str = None,
     **kwargs: dict,
 ) -> tuple:
     """Fetch object id numbers and metadata
@@ -428,6 +427,7 @@ def query_for_table(
         iteration,
     )
     unique_buck = set()
+    pit = sumo.post("/pit", params={"keep-alive": "1m"}).json()["id"]
     query_results, buck = query_sumo(sumo, case_uuid, name, tag, iteration, pit)
     total_hits = query_results["hits"]["total"]["value"]
     if total_hits == 0:
