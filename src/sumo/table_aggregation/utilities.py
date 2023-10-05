@@ -588,7 +588,7 @@ def split_results_and_meta(results: list, **kwargs: dict) -> tuple:
         except KeyError:
             logger.warning("No realization in result, already aggregation?")
             continue
-        meta.resolve_col_conflicts(found_cols, realnr)
+        # meta.resolve_col_conflicts(found_cols, realnr)
         meta.add_realisation(realnr)
 
         blob_ids[realnr] = result["_id"]
