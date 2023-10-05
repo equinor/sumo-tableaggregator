@@ -399,7 +399,7 @@ def query_for_table(
     name: str,
     tag: str,
     iteration: str,
-    pit,
+    pit: str = None,
     **kwargs: dict,
 ) -> tuple:
     """Fetch object id numbers and metadata
