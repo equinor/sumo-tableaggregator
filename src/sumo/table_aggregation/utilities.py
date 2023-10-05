@@ -415,7 +415,7 @@ def get_object(object_id: str, cols_to_read: list, sumo: SumoClient) -> pa.Table
         print("Failing with", expt)
         table = pa.Table.from_pylist([])
 
-    return pq.read_table(file_path, columns=list(cols_to_read))
+    return table
 
 
 def blob_to_table(blob_object) -> pa.Table:
