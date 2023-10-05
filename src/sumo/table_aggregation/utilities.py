@@ -408,13 +408,12 @@ def get_object(object_id: str, cols_to_read: list, sumo: SumoClient) -> pa.Table
         pa.Table: the object as pyarrow
     """
     query = f"/objects('{object_id}')/blob"
-    file_path = f"{object_id}.parquet"
-
-    if not os.path.isfile(file_path):
-        blob = sumo.get(query)
-
-        table = blob_to_table(BytesIO(blob.content))
-        pq.write_table(table, file_path)
+    query_results = sumo.get(query)
+    try:
+        table = blob_to_table(BytesIO(query_results.content), cols_to_read)
+    except Exception as expt:
+        print("Failing with", expt)
+        table = pa.Table.from_pylist([])
 
     return pq.read_table(file_path, columns=list(cols_to_read))
 
