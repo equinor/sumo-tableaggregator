@@ -418,11 +418,12 @@ def get_object(object_id: str, cols_to_read: list, sumo: SumoClient) -> pa.Table
     return table
 
 
-def blob_to_table(blob_object) -> pa.Table:
+def blob_to_table(blob_object, cols_to_read) -> pa.Table:
     """Read stored blob into arrow table
 
     Args:
         blob_object (bytes): the object to convert
+        cols_to_read (list): the columns to read
 
     Returns:
         pa.Table: the results stored as pyarrow table
@@ -435,17 +436,17 @@ def blob_to_table(blob_object) -> pa.Table:
             "Extracting from pandas dataframe with these columns %s", frame.columns
         )
         try:
-            table = pa.Table.from_pandas(frame)
+            table = pa.Table.from_pandas(frame[list(cols_to_read)])
         except KeyError:
             table = pa.Table.from_pandas(pd.DataFrame())
         fformat = "csv"
     except UnicodeDecodeError:
         try:
-            table = feather.read_table(blob_object)
+            table = feather.read_table(blob_object, columns=cols_to_read)
             fformat = "feather"
         except pa.lib.ArrowInvalid:
             fformat = "parquet"
-            table = pq.read_table(blob_object)
+            table = pq.read_table(blob_object, columns=cols_to_read)
 
     logger.debug("Reading table read from %s as arrow", fformat)
     return table
