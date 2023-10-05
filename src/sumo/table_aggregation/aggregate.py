@@ -63,12 +63,13 @@ class TableAggregator(AggregationBasics):
         self._name = name
         self.loop = asyncio.get_event_loop()
         self._iteration = iteration
+        pit = self.sumo.post("/pit", params={"keep-alive": "1m"}).json()["id"]
         (
             self._object_ids,
             self._meta,
             self._table_index,
         ) = ut.query_for_table(
-            self.sumo, self.uuid, self._name, tag, self._iteration, **kwargs
+            self.sumo, self.uuid, self._name, tag, self._iteration, pit, **kwargs
         )
 
     @property
