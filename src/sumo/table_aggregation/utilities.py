@@ -1,10 +1,8 @@
 """Utils for table aggregation"""
 import os
-import base64
 import json
 import sys
 import time
-from datetime import datetime
 import logging
 import warnings
 import hashlib
@@ -22,8 +20,7 @@ import pyarrow.compute as pc
 from pyarrow import feather
 import pyarrow.parquet as pq
 from sumo.wrapper import SumoClient
-from sumo.wrapper._request_error import PermanentError, TransientError
-from httpx import HTTPStatusError
+from sumo.wrapper._request_error import PermanentError
 
 
 # inner psutil function
