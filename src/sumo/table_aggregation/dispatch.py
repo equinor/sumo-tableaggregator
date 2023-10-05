@@ -42,7 +42,7 @@ def collect_case_table_name_and_tag(uuid, sumo):
 
 
 def generate_dispatch_info_per_combination(
-    identifier, sumo, segment_length=1000, **kwargs
+    identifier, sumo, pit, segment_length=1000, **kwargs
 ):
     """Generate list of job specicifations for one given table combination
 
@@ -62,7 +62,7 @@ def generate_dispatch_info_per_combination(
         table_specifics["object_ids"],
         meta,
         table_index,
-    ) = ut.query_for_table(sumo, uuid, name, tag, iteration, **kwargs)
+    ) = ut.query_for_table(sumo, uuid, name, tag, iteration, pit, **kwargs)
     table_specifics["table_index"] = table_index
     segments = ut.split_list(meta["data"]["spec"]["columns"], segment_length)
     seg_specifics = table_specifics.copy()
@@ -93,6 +93,7 @@ def generate_dispatch_info(uuid, env, token=None, seg_length=1000):
     sumo = init_sumo_env(env, token)
     its_names_and_tags = collect_case_table_name_and_tag(uuid, sumo)
     dispatch_info = []
+    pit = sumo.post("/pit", params={"keep-alive": "1m"}).json()["id"]
     for iter_name, table_info in its_names_and_tags.items():
         for table_name, tags in table_info.items():
             for tag_name in tags:
@@ -100,7 +101,7 @@ def generate_dispatch_info(uuid, env, token=None, seg_length=1000):
 
                 dispatch_info.extend(
                     generate_dispatch_info_per_combination(
-                        table_identifier, sumo, seg_length
+                        table_identifier, sumo, pit, seg_length
                     )
                 )
     return dispatch_info
