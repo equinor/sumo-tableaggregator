@@ -1,8 +1,10 @@
 """Utils for table aggregation"""
 import os
+import base64
 import json
 import sys
 import time
+from datetime import datetime
 import logging
 import warnings
 import hashlib
@@ -20,7 +22,8 @@ import pyarrow.compute as pc
 from pyarrow import feather
 import pyarrow.parquet as pq
 from sumo.wrapper import SumoClient
-from sumo.wrapper._request_error import PermanentError
+from sumo.wrapper._request_error import PermanentError, TransientError
+from httpx import HTTPStatusError
 
 
 # inner psutil function
@@ -108,6 +111,70 @@ def init_logging(name: str) -> logging.Logger:
     logger = logging.getLogger(name)
     logger.addHandler(logging.NullHandler())
     return logger
+
+
+def get_expiry_time(sumo: SumoClient) -> int:
+    """Get expiry time from sumo client
+
+    Args:
+        sumo (SumoClient): The activated client
+
+    Returns:
+        int: time since epoch in seconds
+    """
+    logger = init_logging(__name__ + ".get_expiry_time")
+    token_parts = sumo._retrieve_token().split(".")
+    body = json.loads(base64.b64decode(token_parts[1]).decode(encoding="utf-8"))
+
+    expiry_time = body["exp"]
+    strftime = datetime.fromtimestamp(expiry_time).strftime("%Y-%m-%d %H:%M:%S")
+    logger.debug("Token expires at %s", strftime)
+    return expiry_time
+
+
+def find_env(url):
+    """Return sumo environment
+
+    Args:
+        url (str): the base url of sumo client
+
+    Returns:
+        str: the name of environments
+    """
+    logger = init_logging(__name__ + ".find_url")
+    logger.debug("Finding env from url: %s", url)
+    url_parts = url.split(".")
+    return url_parts[0].split("-")[-1]
+
+
+def check_or_refresh_token(sumo):
+    """Checks whether token is about to expire
+
+    Args:
+        sumo (SumoClient): the client to check against
+
+    Raises:
+        TimeoutError: if the token has expired
+
+    Returns:
+        sumo: _description_
+    """
+    logger = init_logging(__name__ + ".check_or_refresh_token")
+    expiry_time = get_expiry_time(sumo)
+    current_time = time.time()
+    lim_in_min = 10
+    limit = (expiry_time - current_time) / (60 * lim_in_min)
+    logger.debug("%s to go ", f"{limit: 3.1f}")
+    if limit < 0:
+        logger.critical("Oh no too late! No token")
+        raise TimeoutError("To late!!!")
+    if limit < 10:
+        logger.info("Refreshing token")
+        sumo.auth.get_token()
+        # sumo = SumoClient(find_env(sumo.base_url))
+    else:
+        logger.debug("No worries here")
+    return sumo
 
 
 def md5sum(bytes_string: bytes) -> str:
@@ -408,22 +475,22 @@ def get_object(object_id: str, cols_to_read: list, sumo: SumoClient) -> pa.Table
         pa.Table: the object as pyarrow
     """
     query = f"/objects('{object_id}')/blob"
-    query_results = sumo.get(query)
-    try:
-        table = blob_to_table(BytesIO(query_results.content), cols_to_read)
-    except Exception as expt:
-        print("Failing with", expt)
-        table = pa.Table.from_pylist([])
+    file_path = f"{object_id}.parquet"
 
-    return table
+    if not os.path.isfile(file_path):
+        blob = sumo.get(query)
+
+        table = blob_to_table(BytesIO(blob.content))
+        pq.write_table(table, file_path)
+
+    return pq.read_table(file_path, columns=list(cols_to_read))
 
 
-def blob_to_table(blob_object, cols_to_read) -> pa.Table:
+def blob_to_table(blob_object) -> pa.Table:
     """Read stored blob into arrow table
 
     Args:
         blob_object (bytes): the object to convert
-        cols_to_read (list): the columns to read
 
     Returns:
         pa.Table: the results stored as pyarrow table
@@ -436,17 +503,17 @@ def blob_to_table(blob_object, cols_to_read) -> pa.Table:
             "Extracting from pandas dataframe with these columns %s", frame.columns
         )
         try:
-            table = pa.Table.from_pandas(frame[list(cols_to_read)])
+            table = pa.Table.from_pandas(frame)
         except KeyError:
             table = pa.Table.from_pandas(pd.DataFrame())
         fformat = "csv"
     except UnicodeDecodeError:
         try:
-            table = feather.read_table(blob_object, columns=cols_to_read)
+            table = feather.read_table(blob_object)
             fformat = "feather"
         except pa.lib.ArrowInvalid:
             fformat = "parquet"
-            table = pq.read_table(blob_object, columns=cols_to_read)
+            table = pq.read_table(blob_object)
 
     logger.debug("Reading table read from %s as arrow", fformat)
     return table
@@ -588,7 +655,7 @@ def split_results_and_meta(results: list, **kwargs: dict) -> tuple:
         except KeyError:
             logger.warning("No realization in result, already aggregation?")
             continue
-        # meta.resolve_col_conflicts(found_cols, realnr)
+        meta.resolve_col_conflicts(found_cols, realnr)
         meta.add_realisation(realnr)
 
         blob_ids[realnr] = result["_id"]
@@ -645,31 +712,25 @@ def reconstruct_table(
     logger.debug("Real %s", real_nr)
     real_table = get_object(object_id, required, sumo)
     rows = real_table.shape[0]
-    if rows == 0:
-        logger.debug(
-            "Table contains the following columns: %s (real: %s)",
-            real_table.column_names,
-            real_nr,
-        )
-        real_table = real_table.add_column(
-            0, "REAL", pa.array([np.int16(real_nr)] * rows)
-        )
-        missing = [
-            col_name for col_name in required if col_name not in real_table.column_names
-        ]
-        if len(missing):
-            logger.info("Real: %s, missing these columns %s", real_nr, missing)
-        for miss in missing:
-            real_table = real_table.add_column(0, miss, pa.array([None] * rows))
-        logger.debug("Table created %s", type(real_table))
 
-        # Sort to ensure that table has cols in same order even
-        # when missing cols occur
-        sorted_tab = real_table.select(sorted(real_table.column_names))
-    else:
-        sorted_tab = real_table
+    logger.debug(
+        "Table contains the following columns: %s (real: %s)",
+        real_table.column_names,
+        real_nr,
+    )
+    real_table = real_table.add_column(0, "REAL", pa.array([np.int16(real_nr)] * rows))
+    missing = [
+        col_name for col_name in required if col_name not in real_table.column_names
+    ]
+    if len(missing):
+        logger.info("Real: %s, missing these columns %s", real_nr, missing)
+    for miss in missing:
+        real_table = real_table.add_column(0, miss, pa.array([None] * rows))
+    logger.debug("Table created %s", type(real_table))
 
-    return sorted_tab
+    # Sort to ensure that table has cols in same order even
+    # when missing cols occur
+    return real_table.select(sorted(real_table.column_names))
 
 
 async def aggregate_arrow(
