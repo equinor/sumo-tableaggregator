@@ -890,6 +890,12 @@ def upload_table(
     logger.debug("Uploading %s-%s", name, operation)
     logger.debug("Columns in table %s", table.column_names)
     logger.debug("Uploading to parent with id %s", parent_id)
+    print(
+        "At upload table for",
+        name,
+        "has following metadata",
+        table.schema.field(name).metadata,
+    )
     byte_string, meta = prepare_object_launch(meta, table, name, operation)
     logger.debug("operation from meta %s", meta["fmu"]["aggregation"])
     logger.debug("cols from meta %s", meta["data"]["spec"]["columns"])
