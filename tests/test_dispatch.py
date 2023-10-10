@@ -1,9 +1,7 @@
-"""Tests for module dispath"""
-import time
-import pytest
-import json
-from sumo.table_aggregation.utilities import timethis
+from sumo.wrapper import SumoClient
+from sumo.table_aggregation import new_dispatch as nd
 from sumo.table_aggregation import dispatch
+import pytest
 
 
 @pytest.fixture(name="uuid", scope="module")
@@ -29,42 +27,43 @@ def fix_sumo(case_env="prod"):
     return dispatch.init_sumo_env(case_env)
 
 
-def test_collect_case_table_name_and_tag(uuid, sumo):
-    """Test function collect_case_table_name_and_tag
-
-    Args:
-        uuid (str): uuid of case
-        sumo (SumoClient): client to given environment
-    """
-    results = dispatch.collect_case_table_name_and_tag(uuid, sumo)
-    print(results)
+@pytest.fixture(name="pit", scope="module")
+def fix_pit(sumo):
+    return sumo.post("/pit", params={"keep-alive": "5m"}).json()["id"]
 
 
-def test_generate_dispatch_info_per_combination(uuid, sumo):
-    """Test function generate_dispatch_info_per_combination
-
-    Args:
-        uuid (str): uuid of case
-        sumo (SumoClient): client to given environment
-    """
-    combination = (uuid, "SNORRE", "rft", "iter-0")
-    results = dispatch.generate_dispatch_info_per_combination(combination, sumo)
-    print(results[0])
-    jason_object = json.dumps(results[0])
+def test_query(uuid, sumo, pit):
+    nd.query_for_it_name_and_tags(sumo, uuid, pit)
 
 
-# @timethis("dispatchlist")
-def test_generate_dispatch_info(uuid):
-    """Test of function generate_dispatch info
+def test_query_for_columns(sumo, uuid, pit):
+    print("FOPT" in nd.query_for_columns(sumo, uuid, "SNORRE", "summary", pit))
 
-    Args:
-        uuid (str): uuid of case
-    """
-    nr_batch_jobs = 45
-    start = time.perf_counter()
-    results = dispatch.generate_dispatch_info(uuid, "prod")
-    stop = time.perf_counter()
-    print("--> Timex (%s): %s s", round(stop - start, 2))
-    found_len = len(results)
-    print(results)
-    assert found_len == nr_batch_jobs, f"found {found_len}, should be {nr_batch_jobs}"
+
+def test_collect_it_name_and_tag(sumo, uuid, pit):
+    print("-------")
+    print(nd.collect_it_name_and_tag(sumo, uuid, pit))
+
+
+def test_generate_dispatch_info(uuid, env="prod"):
+    tasks = nd.generate_dispatch_info(uuid, env)
+    print(f"{len(tasks)} element created")
+    # the_essentials = ["FOPT", "FOPR", "FGPT", "FGPR"]
+    fopt_found = False
+    prev_list = []
+    mandatories = ["table_index", "columns", "object_ids", "base_meta"]
+    all_mandatories_found = False
+    lists_equal = False
+    for task in tasks:
+        if "FOPT" in task["columns"]:
+            fopt_found = True
+        for mandatory in mandatories:
+            all_mandatories_found = mandatory in task.keys()
+        if prev_list == task["columns"]:
+            lists_equal = True
+        prev_list = task["columns"]
+
+    assert fopt_found, "FOPT not found"
+    assert all_mandatories_found, "Some of the mandatories not found"
+    # assert not lists_equal, "Some list elements are equal"
+    assert len(tasks) == 47, "Wrong length!"
