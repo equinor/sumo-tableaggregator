@@ -22,8 +22,6 @@ import pyarrow.compute as pc
 from pyarrow import feather
 import pyarrow.parquet as pq
 from sumo.wrapper import SumoClient
-from sumo.wrapper._request_error import PermanentError, TransientError
-from httpx import HTTPStatusError
 
 
 # inner psutil function
@@ -970,14 +968,6 @@ def upload_table(
             response = sumo.post(path=path, json=meta)
             rsp_code = response.status_code
             logger.info("response meta: %s", rsp_code)
-        except PermanentError:
-            meta_upload = False
-            logger.warning(
-                "Permanent error while uploading metadata, Size of meta %.2e MB",
-                size_of_meta,
-            )
-            logger.info(meta)
-            break
 
         except Exception:
             exp_type, exp, _ = sys.exc_info()
