@@ -3,6 +3,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from sumo.wrapper import SumoClient
 import sumo.table_aggregation.utilities as ut
+from copy import deepcopy
 
 
 def init_sumo_env(env, token: str = None):
@@ -75,7 +76,7 @@ def generate_dispatch_info_per_combination(
         seg_specifics["columns"] = list(seg_set)
         meta["data"]["spec"]["columns"] = []
         seg_specifics["base_meta"] = meta
-        table_dispatch_info.append(seg_specifics)
+        table_dispatch_info.append(deepcopy(seg_specifics))
     return table_dispatch_info
 
 
