@@ -1,7 +1,7 @@
 """Dispatches jobs to to radix"""
+from copy import deepcopy
 from sumo.wrapper import SumoClient
 import sumo.table_aggregation.utilities as ut
-from copy import deepcopy
 
 
 def query_for_it_name_and_tags(sumo: SumoClient, case_uuid: str, pit):
@@ -133,7 +133,14 @@ def generate_dispatch_info(uuid, env, token=None, pit=None, seg_length=1000):
         dispatch_combination["iter_name"] = iter_name
         for table_name, tag_names in it_tables.items():
             dispatch_combination["table_name"] = table_name
+            print("cowabunga")
             for tag_name in tag_names:
+                (
+                    dispatch_combination["object_ids"],
+                    dispatch_combination["base_meta"],
+                    dispatch_combination["table_index"],
+                ) = ut.query_for_table(sumo, uuid, table_name, tag_name, iter_name, pit)
+                dispatch_combination["base_meta"]["data"]["spec"]["columns"] = []
                 dispatch_combination["tag_name"] = tag_name
                 for col_segment in ut.split_list(
                     query_for_columns(sumo, uuid, table_name, tag_name, pit), seg_length
