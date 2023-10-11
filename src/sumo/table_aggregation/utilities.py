@@ -366,7 +366,9 @@ def query_sumo(
         + f" AND fmu.iteration.name:{iteration}"
         + " AND NOT fmu.aggregation.operation:*"
     )
+    logger.debug("Passing query: %s", query)
     if search_after is None:
+        logger.debug("No search after specified")
         query_results = sumo.get(
             path="/search",
             query=query,
@@ -376,6 +378,7 @@ def query_sumo(
             buckets=buck_term,
         )
     else:
+        logger.debug("In a search after situation")
         query_results = sumo.get(
             path="/search",
             query=query,
@@ -653,7 +656,7 @@ def split_results_and_meta(results: list, **kwargs: dict) -> tuple:
         except KeyError:
             logger.warning("No realization in result, already aggregation?")
             continue
-        meta.resolve_col_conflicts(found_cols, realnr)
+        # meta.resolve_col_conflicts(found_cols, realnr)
         meta.add_realisation(realnr)
 
         blob_ids[realnr] = result["_id"]
@@ -949,10 +952,9 @@ def upload_table(
     logger.debug("Uploading %s-%s", name, operation)
     logger.debug("Columns in table %s", table.column_names)
     logger.debug("Uploading to parent with id %s", parent_id)
-    print(
-        "At upload table for",
+    logger.debug(
+        "At upload table %s has following metadata %s",
         name,
-        "has following metadata",
         table.schema.field(name).metadata,
     )
     byte_string, meta = prepare_object_launch(meta, table, name, operation)
