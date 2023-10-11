@@ -127,18 +127,19 @@ def list_of_list_segments(sumo, uuid, name, tagname, table_index, pit, seg_lengt
         name (str): name of table
         tagname (str): tagname of table
         table_index (list): table index for table
-        pit (sumo.Pit): point in time for store
+        pit (str): point in time id
         seg_length (int, optional): max length of segments. Defaults to 1000.
 
     Returns:
         list: list with lists that are segments of the columns available in table
     """
-    segmented_list = [
-        list(set(segment).update(table_index))
-        for segment in ut.split_list(
-            query_for_columns(sumo, uuid, name, tagname, pit), seg_length
-        )
-    ]
+    long_list = query_for_columns(sumo, uuid, name, tagname, pit)
+    segmented_list = []
+    for segment in ut.split_list(long_list, seg_length):
+        segment_set = set(segment)
+        segment_set.update((table_index))
+        segmented_list.append(list(segment_set))
+
     return segmented_list
 
 
