@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from sumo.wrapper import SumoClient
 import sumo.table_aggregation.utilities as ut
+from httpx import HTTPStatusError
 
 
 def query_for_it_name_and_tags(sumo: SumoClient, case_uuid: str, pit):
@@ -176,15 +177,32 @@ def generate_dispatch_info(uuid, env, token=None, pit=None, seg_length=1000):
             logger.debug(tag_names)
             dispatch_combination["table_name"] = table_name
             for tag_name in tag_names:
-                (
-                    dispatch_combination["object_ids"],
-                    dispatch_combination["base_meta"],
-                    dispatch_combination["table_index"],
-                ) = ut.query_for_table(sumo, uuid, table_name, tag_name, iter_name, pit)
+                try:
+                    (
+                        dispatch_combination["object_ids"],
+                        dispatch_combination["base_meta"],
+                        dispatch_combination["table_index"],
+                    ) = ut.query_for_table(
+                        sumo, uuid, table_name, tag_name, iter_name, pit
+                    )
+                except HTTPStatusError:
+                    logger.warning(
+                        "Cannot get results for comination (%s, %s)",
+                        table_name,
+                        tag_name,
+                    )
+                    continue
+
                 dispatch_combination["base_meta"]["data"]["spec"]["columns"] = []
                 dispatch_combination["tag_name"] = tag_name
                 for col_segment in list_of_list_segments(
-                    sumo, uuid, table_name, tag_name, pit, seg_length
+                    sumo,
+                    uuid,
+                    table_name,
+                    tag_name,
+                    dispatch_combination["table_index"],
+                    pit,
+                    seg_length,
                 ):
                     dispatch_combination["columns"] = col_segment
                     dispatch_info.append(deepcopy(dispatch_combination))
