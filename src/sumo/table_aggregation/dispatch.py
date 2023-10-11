@@ -112,6 +112,30 @@ def query_for_columns(sumo, uuid, name, tagname, pit, size=200):
     return list(all_cols)
 
 
+def list_of_list_segments(sumo, uuid, name, tagname, table_index, pit, seg_length=1000):
+    """Return a list of list segments from given one table
+
+    Args:
+        sumo (SumoClient): Client to given sumo environment
+        uuid (str): uuid for case
+        name (str): name of table
+        tagname (str): tagname of table
+        table_index (list): table index for table
+        pit (sumo.Pit): point in time for store
+        seg_length (int, optional): max length of segments. Defaults to 1000.
+
+    Returns:
+        list: list with lists that are segments of the columns available in table
+    """
+    segmented_list = [
+        list(set(segment).update(table_index))
+        for segment in ut.split_list(
+            query_for_columns(sumo, uuid, name, tagname, pit), seg_length
+        )
+    ]
+    return segmented_list
+
+
 def generate_dispatch_info(uuid, env, token=None, pit=None, seg_length=1000):
     """Generate dispatch info for all batch jobs to run
 
@@ -124,16 +148,25 @@ def generate_dispatch_info(uuid, env, token=None, pit=None, seg_length=1000):
     Returns:
         list: list of all table combinations
     """
+    logger = ut.init_logging(__name__ + ".generate_dispatch_info")
     sumo = SumoClient(env, token)
     if pit is None:
         pit = sumo.post("/pit", params={"keep-alive": "1m"}).json()["id"]
 
     dispatch_info = []
-    for iter_name, it_tables in collect_it_name_and_tag(sumo, uuid, pit).items():
+    it_name_and_tag = collect_it_name_and_tag(sumo, uuid, pit)
+    logger.debug("---------")
+    logger.debug(it_name_and_tag)
+    logger.debug("---------")
+    for iter_name, it_tables in it_name_and_tag.items():
+        logger.debug(iter_name)
+        logger.debug(it_tables)
         dispatch_combination = {}
         dispatch_combination["uuid"] = uuid
         dispatch_combination["iter_name"] = iter_name
         for table_name, tag_names in it_tables.items():
+            logger.debug(table_name)
+            logger.debug(tag_names)
             dispatch_combination["table_name"] = table_name
             for tag_name in tag_names:
                 (
@@ -143,8 +176,8 @@ def generate_dispatch_info(uuid, env, token=None, pit=None, seg_length=1000):
                 ) = ut.query_for_table(sumo, uuid, table_name, tag_name, iter_name, pit)
                 dispatch_combination["base_meta"]["data"]["spec"]["columns"] = []
                 dispatch_combination["tag_name"] = tag_name
-                for col_segment in ut.split_list(
-                    query_for_columns(sumo, uuid, table_name, tag_name, pit), seg_length
+                for col_segment in list_of_list_segments(
+                    sumo, uuid, table_name, tag_name, pit, seg_length
                 ):
                     dispatch_combination["columns"] = col_segment
                     dispatch_info.append(deepcopy(dispatch_combination))
