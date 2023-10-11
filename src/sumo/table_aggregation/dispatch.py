@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from sumo.wrapper import SumoClient
 import sumo.table_aggregation.utilities as ut
+from httpx import HTTPStatusError
 
 
 def query_for_it_name_and_tags(sumo: SumoClient, case_uuid: str, pit):
@@ -12,7 +13,7 @@ def query_for_it_name_and_tags(sumo: SumoClient, case_uuid: str, pit):
     Args:
         sumo (SumoClient): Client to a given sumo environment
         case_uuid (str): uuid of a specific case
-        pit (sumo.pit): point in time
+        pit (str): point in time id
 
     Returns:
         dict: query results
@@ -65,7 +66,7 @@ def collect_it_name_and_tag(sumo, uuid, pit):
         sumo (SumoClient): Initialized sumo client
         case_uuid (str): uuid for case
         iteration (str): iteration name
-        pit (sumo.pit): point in time
+        pit (str): point in time id
 
     Returns:
         dict: the results
@@ -99,12 +100,18 @@ def query_for_columns(sumo, uuid, name, tagname, pit, size=200):
     Returns:
         list: all available columns in the table combination
     """
+    logger = ut.init_logging(__name__ + ".query_for_columns")
+
     query = (
         f"_sumo.parent_object:{uuid} AND data.name:{name} AND data.tagname:{tagname} "
         + "AND NOT fmu.aggregation.operation:*"
     )
     select = "data.spec.columns"
-    results = sumo.get("/search", query=query, select=select, size=size, pit=pit)
+    logger.debug("Submitting query: %s", query)
+    p_dict = {"$query": query, "$size": size, "$pit": pit, "$select": select}
+    results = sumo.get("/search", p_dict).json()
+    logger.debug("----\n Returned %s hits\n-----", len(results["hits"]["hits"]))
+
     all_cols = set()
     for hit in results["hits"]["hits"]:
         all_cols.update(hit["_source"]["data"]["spec"]["columns"])
@@ -121,18 +128,19 @@ def list_of_list_segments(sumo, uuid, name, tagname, table_index, pit, seg_lengt
         name (str): name of table
         tagname (str): tagname of table
         table_index (list): table index for table
-        pit (sumo.Pit): point in time for store
+        pit (str): point in time id
         seg_length (int, optional): max length of segments. Defaults to 1000.
 
     Returns:
         list: list with lists that are segments of the columns available in table
     """
-    segmented_list = [
-        list(set(segment).update(table_index))
-        for segment in ut.split_list(
-            query_for_columns(sumo, uuid, name, tagname, pit), seg_length
-        )
-    ]
+    long_list = query_for_columns(sumo, uuid, name, tagname, pit)
+    segmented_list = []
+    for segment in ut.split_list(long_list, seg_length):
+        segment_set = set(segment)
+        segment_set.update((table_index))
+        segmented_list.append(list(segment_set))
+
     return segmented_list
 
 
@@ -143,7 +151,7 @@ def generate_dispatch_info(uuid, env, token=None, pit=None, seg_length=1000):
         uuid (str): case uuid
         env (str): name of sumo env to read from
         seg_length (str): length of columns to pass per batch job
-        pit (sumo.pit, optional): point in time, Defaults to None
+        pit (str, optional): point in time id, Defaults to None
 
     Returns:
         list: list of all table combinations
@@ -169,15 +177,32 @@ def generate_dispatch_info(uuid, env, token=None, pit=None, seg_length=1000):
             logger.debug(tag_names)
             dispatch_combination["table_name"] = table_name
             for tag_name in tag_names:
-                (
-                    dispatch_combination["object_ids"],
-                    dispatch_combination["base_meta"],
-                    dispatch_combination["table_index"],
-                ) = ut.query_for_table(sumo, uuid, table_name, tag_name, iter_name, pit)
+                try:
+                    (
+                        dispatch_combination["object_ids"],
+                        dispatch_combination["base_meta"],
+                        dispatch_combination["table_index"],
+                    ) = ut.query_for_table(
+                        sumo, uuid, table_name, tag_name, iter_name, pit
+                    )
+                except HTTPStatusError:
+                    logger.warning(
+                        "Cannot get results for comination (%s, %s)",
+                        table_name,
+                        tag_name,
+                    )
+                    continue
+
                 dispatch_combination["base_meta"]["data"]["spec"]["columns"] = []
                 dispatch_combination["tag_name"] = tag_name
                 for col_segment in list_of_list_segments(
-                    sumo, uuid, table_name, tag_name, pit, seg_length
+                    sumo,
+                    uuid,
+                    table_name,
+                    tag_name,
+                    dispatch_combination["table_index"],
+                    pit,
+                    seg_length,
                 ):
                     dispatch_combination["columns"] = col_segment
                     dispatch_info.append(deepcopy(dispatch_combination))
