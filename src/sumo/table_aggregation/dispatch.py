@@ -99,12 +99,18 @@ def query_for_columns(sumo, uuid, name, tagname, pit, size=200):
     Returns:
         list: all available columns in the table combination
     """
+    logger = ut.init_logging(__name__ + ".query_for_columns")
+
     query = (
         f"_sumo.parent_object:{uuid} AND data.name:{name} AND data.tagname:{tagname} "
         + "AND NOT fmu.aggregation.operation:*"
     )
     select = "data.spec.columns"
-    results = sumo.get("/search", query=query, select=select, size=size, pit=pit)
+    logger.debug("Submitting query: %s", query)
+    p_dict = {"$query": query, "$size": size, "$pit": pit, "$select": select}
+    results = sumo.get("/search", p_dict).json()
+    logger.debug("----\n Returned %s hits\n-----", len(results["hits"]["hits"]))
+
     all_cols = set()
     for hit in results["hits"]["hits"]:
         all_cols.update(hit["_source"]["data"]["spec"]["columns"])
