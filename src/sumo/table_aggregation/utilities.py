@@ -229,11 +229,13 @@ def query_for_sumo_id(sumo: SumoClient, case_name: str) -> str:
     select = "fmu.case.uuid"
     query = f"fmu.case.name:{case_name}"
     results = sumo.get(
-        path="/searchroot",
-        query=query,
-        size=1,
-        select=select,
-    )
+        "/searchroot",
+        {
+            "$query": query,
+            "$size": 1,
+            "$select": select,
+        },
+    ).json()
     logger.debug("%s hits.", len(results["hits"]["hits"]))
     unique_id = results["hits"]["hits"][0]["_source"]["fmu"]["case"]["uuid"]
     return unique_id
@@ -270,12 +272,9 @@ def query_sumo_iterations(sumo: SumoClient, case_uuid: str) -> list:
     selector = "fmu.iteration.name"
     bucket_name = selector + ".keyword"
     results = sumo.get(
-        path="/search",
-        query=query,
-        size=0,
-        select=selector,
-        buckets=bucket_name,
-    )
+        "/search",
+        {"$query": query, "$size": 0, "$select": selector, "$buckets": bucket_name},
+    ).json()
     iterations = get_buckets(results["aggregations"], bucket_name)
     return iterations
 
@@ -370,27 +369,32 @@ def query_sumo(
     if search_after is None:
         logger.debug("No search after specified")
         query_results = sumo.get(
-            path="/search",
-            query=query,
-            sort="_doc:asc",
-            pit=pit,
-            size=100,
-            buckets=buck_term,
-        )
+            "/search",
+            {
+                "$query": query,
+                "$sort": "_doc:asc",
+                "$pit": pit,
+                "$size": 100,
+                "$buckets": buck_term,
+            },
+        ).json()
     else:
-        logger.debug("In a search after situation")
+        logger.debug("\n\nIn a search after situation\n\n")
+        time.sleep(2)
         query_results = sumo.get(
-            path="/search",
-            query=query,
-            size=100,
-            sort="_doc:asc",
-            pit=pit,
-            search_after=json.dumps(search_after),
-            buckets=buck_term,
-        )
-    logger.info("Query: %s", query)
+            "/search",
+            {
+                "$query": query,
+                "$size": 100,
+                "$sort": "_doc:asc",
+                "$pit": pit,
+                "$search_after": json.dumps(search_after),
+                "$buckets": buck_term,
+            },
+        ).json()
     buckets = get_buckets(query_results["aggregations"], buck_term)
-
+    logger.debug("Returning query results %s", query_results)
+    logger.debug("And returning buckets")
     return query_results, buckets
 
 
@@ -479,7 +483,7 @@ def get_object(object_id: str, cols_to_read: list, sumo: SumoClient) -> pa.Table
     file_path = f"{object_id}.parquet"
 
     if not os.path.isfile(file_path):
-        blob = sumo.get(query)
+        blob = sumo.get(query).content
 
         table = blob_to_table(BytesIO(blob.content))
         pq.write_table(table, file_path)
