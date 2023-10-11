@@ -12,7 +12,7 @@ def query_for_it_name_and_tags(sumo: SumoClient, case_uuid: str, pit):
     Args:
         sumo (SumoClient): Client to a given sumo environment
         case_uuid (str): uuid of a specific case
-        pit (sumo.pit): point in time
+        pit (str): point in time id
 
     Returns:
         dict: query results
@@ -65,7 +65,7 @@ def collect_it_name_and_tag(sumo, uuid, pit):
         sumo (SumoClient): Initialized sumo client
         case_uuid (str): uuid for case
         iteration (str): iteration name
-        pit (sumo.pit): point in time
+        pit (str): point in time id
 
     Returns:
         dict: the results
@@ -143,7 +143,7 @@ def generate_dispatch_info(uuid, env, token=None, pit=None, seg_length=1000):
         uuid (str): case uuid
         env (str): name of sumo env to read from
         seg_length (str): length of columns to pass per batch job
-        pit (sumo.pit, optional): point in time, Defaults to None
+        pit (str, optional): point in time id, Defaults to None
 
     Returns:
         list: list of all table combinations
