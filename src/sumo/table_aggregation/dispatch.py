@@ -31,7 +31,7 @@ def query_for_it_name_and_tags(sumo: SumoClient, case_uuid: str, pit):
                         "term": {
                             "fmu.aggregation.operation.keyword": {"value": "collection"}
                         }
-                    },
+                    }
                 ],
             }
         },
@@ -43,7 +43,7 @@ def query_for_it_name_and_tags(sumo: SumoClient, case_uuid: str, pit):
                         "terms": {"field": "data.name.keyword", "size": 100},
                         "aggs": {
                             "tagname": {
-                                "terms": {"field": "data.tagname.keyword", "size": 100},
+                                "terms": {"field": "data.tagname.keyword", "size": 100}
                             }
                         },
                     }
@@ -51,7 +51,6 @@ def query_for_it_name_and_tags(sumo: SumoClient, case_uuid: str, pit):
             }
         },
         "size": 0,
-        # "pit": pit,
     }
     logger.debug("\nSubmitting query for tags: %s\n", query)
     results = sumo.post("/search", json=query).json()
