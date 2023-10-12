@@ -22,6 +22,7 @@ import pyarrow.compute as pc
 from pyarrow import feather
 import pyarrow.parquet as pq
 from sumo.wrapper import SumoClient
+from httpx import HTTPStatusError
 
 
 # inner psutil function
@@ -715,27 +716,31 @@ def reconstruct_table(
     """
     logger = init_logging(__name__ + ".reconstruct_table")
     logger.debug("Real %s", real_nr)
-    real_table = get_object(object_id, required, sumo)
-    rows = real_table.shape[0]
+    try:
+        real_table = get_object(object_id, required, sumo)
+        rows = real_table.shape[0]
 
-    logger.debug(
-        "Table contains the following columns: %s (real: %s)",
-        real_table.column_names,
-        real_nr,
-    )
-    real_table = real_table.add_column(0, "REAL", pa.array([np.int16(real_nr)] * rows))
-    missing = [
-        col_name for col_name in required if col_name not in real_table.column_names
-    ]
-    if len(missing):
-        logger.info("Real: %s, missing these columns %s", real_nr, missing)
-    for miss in missing:
-        real_table = real_table.add_column(0, miss, pa.array([None] * rows))
-    logger.debug("Table created %s", type(real_table))
+        logger.debug(
+            "Table contains the following columns: %s (real: %s)",
+            real_table.column_names,
+            real_nr,
+        )
+        real_table = real_table.add_column(0, "REAL", pa.array([np.int16(real_nr)] * rows))
+        missing = [
+            col_name for col_name in required if col_name not in real_table.column_names
+        ]
+        if len(missing):
+            logger.info("Real: %s, missing these columns %s", real_nr, missing)
+        for miss in missing:
+            real_table = real_table.add_column(0, miss, pa.array([None] * rows))
+        logger.debug("Table created %s", type(real_table))
 
-    # Sort to ensure that table has cols in same order even
-    # when missing cols occur
-    return real_table.select(sorted(real_table.column_names))
+        # Sort to ensure that table has cols in same order even
+        # when missing cols occur
+        real_table = real_table.select(sorted(real_table.column_names))
+    except HTTPStatusError:
+        real_table = pa.table([])
+    return real_table
 
 
 async def aggregate_arrow(
