@@ -483,7 +483,7 @@ def get_object(object_id: str, cols_to_read: list, sumo: SumoClient) -> pa.Table
     file_path = f"{object_id}.parquet"
 
     if not os.path.isfile(file_path):
-        blob = sumo.get(query).content
+        blob = sumo.get(query)
 
         table = blob_to_table(BytesIO(blob.content))
         pq.write_table(table, file_path)
