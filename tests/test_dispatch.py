@@ -2,6 +2,8 @@ from sumo.wrapper import SumoClient
 from sumo.table_aggregation import dispatch
 import pytest
 import logging
+import json
+from pathlib import Path
 
 logging.basicConfig(level="DEBUG")
 
@@ -109,6 +111,8 @@ def test_generate_dispatch_info(uuid, env="prod"):
     tasks = dispatch.generate_dispatch_info(uuid, env)
     print(tasks)
     print(f"Tasks made %s {len(tasks)}")
+    with open("dispath_info_snorre.json", "w", encoding="utf-8") as outfile:
+        json.dump(tasks, outfile)
     # print(f"{len(tasks)} element created")
     # # the_essentials = ["FOPT", "FOPR", "FGPT", "FGPR"]
     # fopt_found = False
@@ -131,3 +135,13 @@ def test_generate_dispatch_info(uuid, env="prod"):
 # assert all_mandatories_found, "Some of the mandatories not found"
 # # assert not lists_equal, "Some list elements are equal"
 # assert len(tasks) == 47, "Wrong length!"
+
+
+def test_aggregate_and_upload(sumo):
+    json_file = "data/dispath_info_snorre.json"
+
+    content = []
+    with open(Path(__file__).parent / json_file, "r", encoding="utf-8") as stream:
+        content = json.load(stream)
+    print(content[0])
+    dispatch.aggregate_and_upload(content[0], sumo)
