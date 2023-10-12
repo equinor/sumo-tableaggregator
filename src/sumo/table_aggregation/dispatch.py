@@ -53,11 +53,9 @@ def query_for_it_name_and_tags(sumo: SumoClient, case_uuid: str, pit):
         "size": 0,
     }
     logger.debug("\nSubmitting query for tags: %s\n", query)
-    results = sumo.post("/search", json=query)
+    results = sumo.post("/search", json=query).json()
     logger.debug("\nQuery results all\n %s", results)
-    logger.debug(
-        "\nQuery results\n %s", results.json()["aggregations"]["iter"]["buckets"]
-    )
+    logger.debug("\nQuery results\n %s", results["aggregations"]["iter"]["buckets"])
     return results["aggregations"]["iter"]["buckets"]
 
 
@@ -159,6 +157,8 @@ def generate_dispatch_info(uuid, env, token=None, pit=None, seg_length=1000):
         list: list of all table combinations
     """
     logger = ut.init_logging(__name__ + ".generate_dispatch_info")
+
+    logger.debug(f"Creating sumo client for: {env}")
     sumo = SumoClient(env, token)
     if pit is None:
         pit = sumo.post("/pit", params={"keep-alive": "1m"}).json()["id"]
@@ -167,7 +167,6 @@ def generate_dispatch_info(uuid, env, token=None, pit=None, seg_length=1000):
     it_name_and_tag = collect_it_name_and_tag(sumo, uuid, pit)
     logger.debug("---------")
     logger.debug(it_name_and_tag)
-    print(it_name_and_tag)
     logger.debug("---------")
     for iter_name, it_tables in it_name_and_tag.items():
         logger.debug(iter_name)
