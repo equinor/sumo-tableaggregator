@@ -54,6 +54,7 @@ def query_for_it_name_and_tags(sumo: SumoClient, case_uuid: str, pit):
     }
     logger.debug("\nSubmitting query for tags: %s\n", query)
     results = sumo.post("/search", json=query).json()
+    logger.debug("\nQuery results all\n %s", results)
     logger.debug("\nQuery results\n %s", results["aggregations"]["iter"]["buckets"])
     return results["aggregations"]["iter"]["buckets"]
 
