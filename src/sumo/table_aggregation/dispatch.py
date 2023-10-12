@@ -165,6 +165,7 @@ def generate_dispatch_info(uuid, env, token=None, pit=None, seg_length=1000):
     it_name_and_tag = collect_it_name_and_tag(sumo, uuid, pit)
     logger.debug("---------")
     logger.debug(it_name_and_tag)
+    print(it_name_and_tag)
     logger.debug("---------")
     for iter_name, it_tables in it_name_and_tag.items():
         logger.debug(iter_name)
