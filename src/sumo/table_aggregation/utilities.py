@@ -521,6 +521,8 @@ def blob_to_table(blob_object) -> pa.Table:
             fformat = "parquet"
             table = pq.read_table(blob_object)
 
+    if "WELLETC" in table.column_names:
+        table = table.drop(["WELLETC"])
     logger.debug("Reading table read from %s as arrow", fformat)
     return table
 
