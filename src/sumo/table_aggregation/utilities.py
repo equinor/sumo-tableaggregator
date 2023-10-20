@@ -769,7 +769,7 @@ def reconstruct_table(
 
         # Sort to ensure that table has cols in same order even
         # when missing cols occur
-        real_table = real_table.select(sorted(real_table.column_names))
+        real_table = real_table.select(sorted(required))
     except HTTPStatusError:
         real_table = pa.table([])
     return real_table
