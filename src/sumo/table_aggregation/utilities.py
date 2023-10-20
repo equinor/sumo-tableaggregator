@@ -700,6 +700,29 @@ def get_blob_ids_w_metadata(hits: list, **kwargs: dict) -> tuple:
     return split_results_and_meta(hits, **kwargs)
 
 
+def change_all_null_to_float(table):
+    """Change dtype of columns that are all null
+
+    Args:
+        table (pa.Table): the table to convert
+
+    Returns:
+        pa.Table: converted table
+    """
+    logger = init_logging(__name__ + ".change_all_null_to_float")
+    all_nulls = [
+        col for col in table.column_names if all(table[col].is_null().to_pylist())
+    ]
+    logger.debug("Null columns %s", all_nulls)
+    for col_name in all_nulls:
+        logger.debug("%s: %s", col_name, table.schema.field(col_name).type)
+        replacement = table[col_name].cast(pa.float32())
+        table = table.drop([col_name])
+        table = table.add_column(0, col_name, replacement)
+    logging.debug("After conversion schema is %s", table.schema)
+    return table
+
+
 @memcount()
 def reconstruct_table(
     object_id: str, real_nr: str, sumo: SumoClient, required: list
