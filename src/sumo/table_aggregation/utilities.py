@@ -470,7 +470,7 @@ def uuid_from_string(string: str) -> str:
     return str(uuid.UUID(hashlib.md5(string.encode("utf-8")).hexdigest()))
 
 
-def get_object(object_id: str, cols_to_read: list, sumo: SumoClient) -> pa.Table:
+def get_object(object_id: str, sumo: SumoClient) -> pa.Table:
     """fetche sumo object as pa.Table
 
     Args:
@@ -481,15 +481,20 @@ def get_object(object_id: str, cols_to_read: list, sumo: SumoClient) -> pa.Table
         pa.Table: the object as pyarrow
     """
     query = f"/objects('{object_id}')/blob"
-    file_path = f"{object_id}.parquet"
-
-    if not os.path.isfile(file_path):
-        blob = sumo.get(query)
-
-        table = blob_to_table(BytesIO(blob.content))
-        pq.write_table(table, file_path)
-
-    return pq.read_table(file_path, columns=list(cols_to_read))
+    response_code = "6"
+    tries = 0
+    while int(str(response_code)[0]) > 3:
+        try:
+            response = sumo.get(query)
+            response_code = response.status_code
+            table = change_all_null_to_float(blob_to_table(BytesIO(response.content)))
+        except HTTPStatusError:
+            time.sleep(0.5)
+        tries += 1
+        if tries > 2:
+            table = pa.table([])
+            break
+    return table
 
 
 def blob_to_table(blob_object) -> pa.Table:
@@ -521,6 +526,8 @@ def blob_to_table(blob_object) -> pa.Table:
             fformat = "parquet"
             table = pq.read_table(blob_object)
 
+    if "WELLETC" in table.column_names:
+        table = table.drop(["WELLETC"])
     logger.debug("Reading table read from %s as arrow", fformat)
     return table
 
@@ -698,6 +705,29 @@ def get_blob_ids_w_metadata(hits: list, **kwargs: dict) -> tuple:
     return split_results_and_meta(hits, **kwargs)
 
 
+def change_all_null_to_float(table):
+    """Change dtype of columns that are all null
+
+    Args:
+        table (pa.Table): the table to convert
+
+    Returns:
+        pa.Table: converted table
+    """
+    logger = init_logging(__name__ + ".change_all_null_to_float")
+    all_nulls = [
+        col for col in table.column_names if all(table[col].is_null().to_pylist())
+    ]
+    logger.debug("Null columns %s", all_nulls)
+    for col_name in all_nulls:
+        logger.debug("%s: %s", col_name, table.schema.field(col_name).type)
+        replacement = table[col_name].cast(pa.float32())
+        table = table.drop([col_name])
+        table = table.add_column(0, col_name, replacement)
+    logging.debug("After conversion schema is %s", table.schema)
+    return table
+
+
 @memcount()
 def reconstruct_table(
     object_id: str, real_nr: str, sumo: SumoClient, required: list
@@ -717,7 +747,7 @@ def reconstruct_table(
     logger = init_logging(__name__ + ".reconstruct_table")
     logger.debug("Real %s", real_nr)
     try:
-        real_table = get_object(object_id, required, sumo)
+        real_table = get_object(object_id, sumo)
         rows = real_table.shape[0]
 
         logger.debug(
@@ -725,7 +755,9 @@ def reconstruct_table(
             real_table.column_names,
             real_nr,
         )
-        real_table = real_table.add_column(0, "REAL", pa.array([np.int16(real_nr)] * rows))
+        real_table = real_table.add_column(
+            0, "REAL", pa.array([np.int16(real_nr)] * rows)
+        )
         missing = [
             col_name for col_name in required if col_name not in real_table.column_names
         ]
@@ -737,7 +769,7 @@ def reconstruct_table(
 
         # Sort to ensure that table has cols in same order even
         # when missing cols occur
-        real_table = real_table.select(sorted(real_table.column_names))
+        real_table = real_table.select(sorted(required))
     except HTTPStatusError:
         real_table = pa.table([])
     return real_table
