@@ -207,8 +207,8 @@ def generate_dispatch_info(uuid, env, token=None, pit=None, seg_length=1000):
                     dispatch_combination["columns"] = col_segment
                     dispatch_info.append(deepcopy(dispatch_combination))
 
-    return [d for d in dispatch_info if d.table_name == "geogrid"]
-    # return dispatch_info[:1]
+    return [d for d in dispatch_info if d.table_name == "geogrid"][:1]
+    # return dispatch_info
 
 
 def aggregate_and_upload(dispatch_info, sumo):
