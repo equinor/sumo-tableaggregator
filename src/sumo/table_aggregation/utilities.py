@@ -725,7 +725,9 @@ def reconstruct_table(
             real_table.column_names,
             real_nr,
         )
-        real_table = real_table.add_column(0, "REAL", pa.array([np.int16(real_nr)] * rows))
+        real_table = real_table.add_column(
+            0, "REAL", pa.array([np.int16(real_nr)] * rows)
+        )
         missing = [
             col_name for col_name in required if col_name not in real_table.column_names
         ]
@@ -977,7 +979,7 @@ def upload_table(
         size_of_meta = sys.getsizeof(meta) / (1024 * 1024)
         try:
             response = sumo.post(path=path, json=meta)
-            rsp_code = response.status_code
+            rsp_code = ":("  # response.status_code
             logger.info("response meta: %s", rsp_code)
 
         except Exception:
