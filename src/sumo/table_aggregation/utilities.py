@@ -740,6 +740,7 @@ def reconstruct_table(
         real_table = real_table.select(sorted(real_table.column_names))
     except HTTPStatusError:
         real_table = pa.table([])
+    logger.info("Reconnstructed table, size is %s", real_table.nbytes)
     return real_table
 
 
