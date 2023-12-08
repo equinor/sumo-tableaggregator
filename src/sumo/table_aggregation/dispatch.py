@@ -58,7 +58,7 @@ def query_for_names_and_tags(
     return results["aggregations"]["name"]["buckets"]
 
 
-def collect_it_name_and_tag(sumo, uuid, pit):
+def collect_names_and_tags(sumo, uuid, iteration="0", pit=None):
     """Make dict with key as table name, and value list of corresponding tags
 
     Args:
@@ -70,20 +70,16 @@ def collect_it_name_and_tag(sumo, uuid, pit):
     Returns:
         dict: the results
     """
-    iterations = query_for_it_name_and_tags(sumo, uuid, pit)
-    its_names_and_tags = {}
-    for iteration in iterations:
-        it_key = iteration["key"]
-        its_names_and_tags[it_key] = {}
-        name_buckets = iteration["name"]["buckets"]
-        for name_bucket in name_buckets:
-            name_key = name_bucket["key"]
-            its_names_and_tags[it_key][name_key] = []
-            tag_buckets = name_bucket["tagname"]["buckets"]
-            for tag_bucket in tag_buckets:
-                its_names_and_tags[it_key][name_key].append(tag_bucket["key"])
+    names = query_for_names_and_tags(sumo, uuid, iteration, pit)
+    names_and_tags = {}
+    for name in names:
+        name_key = name["key"]
+        tag_buckets = name["tagname"]["buckets"]
+        names_and_tags[name_key] = []
+        for tag_bucket in tag_buckets:
+            names_and_tags[name_key].append(tag_bucket["key"])
 
-    return its_names_and_tags
+    return names_and_tags
 
 
 def query_for_columns(sumo, uuid, name, tagname, pit, size=200):
