@@ -698,7 +698,7 @@ def get_blob_ids_w_metadata(hits: list, **kwargs: dict) -> tuple:
     return split_results_and_meta(hits, **kwargs)
 
 
-@memcount()
+# @memcount()
 def reconstruct_table(
     object_id: str, real_nr: str, sumo: SumoClient, required: list
 ) -> pa.Table:
