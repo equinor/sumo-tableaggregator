@@ -7,7 +7,9 @@ import sumo.table_aggregation.utilities as ut
 from httpx import HTTPStatusError
 
 
-def query_for_it_name_and_tags(sumo: SumoClient, case_uuid: str, pit):
+def query_for_names_and_tags(
+    sumo: SumoClient, case_uuid: str, iter_name: str = "0", pit=None
+):
     """Query sumo for iteration name, and corresponding combinations of names and tagnames
 
     Args:
@@ -25,6 +27,7 @@ def query_for_it_name_and_tags(sumo: SumoClient, case_uuid: str, pit):
                 "must": [
                     {"term": {"_sumo.parent_object.keyword": {"value": case_uuid}}},
                     {"term": {"class.keyword": {"value": "table"}}},
+                    {"term": {"fmu.iteration.name": {"value": iter_name}}},
                 ],
                 "must_not": [
                     {
@@ -36,27 +39,23 @@ def query_for_it_name_and_tags(sumo: SumoClient, case_uuid: str, pit):
             }
         },
         "aggs": {
-            "iter": {
-                "terms": {"field": "fmu.iteration.name.keyword", "size": 100},
+            "name": {
+                "terms": {"field": "data.name.keyword", "size": 100},
                 "aggs": {
-                    "name": {
-                        "terms": {"field": "data.name.keyword", "size": 100},
-                        "aggs": {
-                            "tagname": {
-                                "terms": {"field": "data.tagname.keyword", "size": 100},
-                            }
-                        },
-                    }
+                    "tagname": {
+                        "terms": {"field": "data.tagname.keyword", "size": 100},
+                    },
                 },
             }
         },
         "size": 0,
-        # "pit": pit,
     }
+    # if pit is not None:
+    #     query["pit"] = pit
     logger.debug("\nSubmitting query for tags: %s\n", query)
     results = sumo.post("/search", json=query).json()
-    logger.debug("\nQuery results\n %s", results["aggregations"]["iter"]["buckets"])
-    return results["aggregations"]["iter"]["buckets"]
+    logger.debug("\nQuery results\n %s", results["aggregations"]["name"]["buckets"])
+    return results["aggregations"]["name"]["buckets"]
 
 
 def collect_it_name_and_tag(sumo, uuid, pit):
