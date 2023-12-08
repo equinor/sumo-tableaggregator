@@ -144,7 +144,7 @@ def list_of_list_segments(sumo, uuid, name, tagname, table_index, pit, seg_lengt
     return segmented_list
 
 
-def generate_dispatch_info(uuid, env, token=None, pit=None, seg_length=1000):
+def generate_dispatch_info(uuid, env, token=None, pit=None, seg_length=250):
     """Generate dispatch info for all batch jobs to run
 
     Args:

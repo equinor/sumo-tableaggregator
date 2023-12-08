@@ -698,7 +698,7 @@ def get_blob_ids_w_metadata(hits: list, **kwargs: dict) -> tuple:
     return split_results_and_meta(hits, **kwargs)
 
 
-@memcount()
+# @memcount()
 def reconstruct_table(
     object_id: str, real_nr: str, sumo: SumoClient, required: list
 ) -> pa.Table:
@@ -740,6 +740,7 @@ def reconstruct_table(
         real_table = real_table.select(sorted(real_table.column_names))
     except HTTPStatusError:
         real_table = pa.table([])
+    logger.info("Reconnstructed table, size is %s", real_table.nbytes)
     return real_table
 
 
