@@ -449,7 +449,7 @@ def query_for_table(
         blob_ids,
         convert_metadata(
             query_result["hits"]["hits"][0]["_source"],
-            list(blob_ids.values()),
+            list(blob_ids.keys()),
             table_index,
         ),
         table_index,
