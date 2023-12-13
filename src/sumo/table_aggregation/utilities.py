@@ -403,6 +403,58 @@ def query_for_table(
     sumo: SumoClient,
     case_uuid: str,
     name: str,
+    tagname: str,
+    iterationname: str,
+    pit: str = None,
+    **kwargs: dict,
+):
+    logger = init_logging(__name__ + ".query_for_table")
+    query = {
+        "query": {
+            "bool": {
+                "must": [
+                    {"term": {"fmu.case.uuid.keyword": {"value": case_uuid}}},
+                    {"term": {"data.name.keyword": {"value": name}}},
+                    {"term": {"data.tagname.keyword": {"value": tagname}}},
+                    {"term": {"fmu.iteration.name.keyword": {"value": iterationname}}},
+                    {"term": {"fmu.context.stage.keyword": {"value": "realization"}}},
+                ]
+            }
+        },
+        "size": 1,
+        "track_total_hits": True,
+        "aggs": {
+            "checksums": {"cardinality": {"field": "file.checksum_md5.keyword"}},
+        },
+        "_source": {"excludes": ["fmu.realization.parameters"]},
+    }
+    query_result = sumo.post("/search", json=query).json()
+    if query_result["aggregations"]["checksums"]["value"] == 1:
+        logger.warning(
+            "Name: %s and tag %s, all objects are equal, will only pass one",
+            name,
+            tagname,
+        )
+    query["size"] = 1000  # fixme: should handle cases with more than 1000 objects ?
+    query["_source"] = {"includes": ["fmu.realization.id"]}
+    del query["aggs"]
+    query_ids = sumo.post("/search", json=query).json()
+
+    blob_ids = {}
+    for hit in query_ids["hits"]["hits"]:
+        blob_ids[hit["_source"]["fmu"]["realization"]["id"]] = hit["_id"]
+
+    return (
+        blob_ids,
+        query_result["hits"]["hits"][0]["_source"],
+        query_result["hits"]["hits"][0]["_source"]["data"]["table_index"],
+    )
+
+
+def query_for_table_old(
+    sumo: SumoClient,
+    case_uuid: str,
+    name: str,
     tag: str,
     iteration: str,
     pit: str = None,
@@ -725,7 +777,9 @@ def reconstruct_table(
             real_table.column_names,
             real_nr,
         )
-        real_table = real_table.add_column(0, "REAL", pa.array([np.int16(real_nr)] * rows))
+        real_table = real_table.add_column(
+            0, "REAL", pa.array([np.int16(real_nr)] * rows)
+        )
         missing = [
             col_name for col_name in required if col_name not in real_table.column_names
         ]

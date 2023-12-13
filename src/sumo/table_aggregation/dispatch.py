@@ -29,7 +29,6 @@ def query_for_names_and_tags(
                     {"term": {"class.keyword": {"value": "table"}}},
                     {"term": {"fmu.iteration.name.keyword": {"value": iter_name}}},
                     {"term": {"fmu.context.stage.keyword": {"value": "realization"}}},
-
                 ],
             }
         },
@@ -53,7 +52,7 @@ def query_for_names_and_tags(
     return results["aggregations"]["name"]["buckets"]
 
 
-def collect_names_and_tags(sumo, uuid, iteration="0", pit=None):
+def collect_names_and_tags(sumo, uuid, iteration, pit=None):
     """Make dict with key as table name, and value list of corresponding tags
 
     Args:
@@ -109,32 +108,29 @@ def query_for_columns(sumo, uuid, name, tagname, pit, size=200):
     return list(all_cols)
 
 
-def list_of_list_segments(sumo, uuid, name, tagname, table_index, pit, seg_length=1000):
+def list_of_list_segments(metadata, seg_length=1000):
     """Return a list of list segments from given one table
 
     Args:
-        sumo (SumoClient): Client to given sumo environment
-        uuid (str): uuid for case
-        name (str): name of table
-        tagname (str): tagname of table
-        table_index (list): table index for table
-        pit (str): point in time id
+        metadata: metadata for a single realization
         seg_length (int, optional): max length of segments. Defaults to 1000.
 
     Returns:
         list: list with lists that are segments of the columns available in table
     """
-    long_list = query_for_columns(sumo, uuid, name, tagname, pit)
+    long_list = metadata["data"]["spec"]["columns"]
     segmented_list = []
     for segment in ut.split_list(long_list, seg_length):
         segment_set = set(segment)
-        segment_set.update((table_index))
+        segment_set.update(metadata["data"]["table_index"])
         segmented_list.append(list(segment_set))
 
     return segmented_list
 
 
-def generate_dispatch_info(uuid, env, iteration_name, token=None, pit=None, seg_length=250):
+def generate_dispatch_info(
+    uuid, env, iteration_name, token=None, pit=None, seg_length=250
+):
     """Generate dispatch info for all batch jobs to run
 
     Args:
@@ -152,50 +148,45 @@ def generate_dispatch_info(uuid, env, iteration_name, token=None, pit=None, seg_
         pit = sumo.post("/pit", params={"keep-alive": "1m"}).json()["id"]
 
     dispatch_info = []
-    it_name_and_tag = collect_names_and_tags(sumo, iteration_name, uuid, pit)
+    name_and_tag = collect_names_and_tags(sumo, uuid, iteration_name, pit)
     logger.debug("---------")
-    logger.debug(it_name_and_tag)
+    logger.debug(name_and_tag)
     logger.debug("---------")
-    for iter_name, it_tables in it_name_and_tag.items():
-        logger.debug(iter_name)
-        logger.debug(it_tables)
-        dispatch_combination = {}
-        dispatch_combination["uuid"] = uuid
-        dispatch_combination["iter_name"] = iter_name
-        for table_name, tag_names in it_tables.items():
-            logger.debug(table_name)
-            logger.debug(tag_names)
-            dispatch_combination["table_name"] = table_name
-            for tag_name in tag_names:
-                try:
-                    (
-                        dispatch_combination["object_ids"],
-                        dispatch_combination["base_meta"],
-                        dispatch_combination["table_index"],
-                    ) = ut.query_for_table(
-                        sumo, uuid, table_name, tag_name, iter_name, pit
-                    )
-                except HTTPStatusError:
-                    logger.warning(
-                        "Cannot get results for comination (%s, %s)",
-                        table_name,
-                        tag_name,
-                    )
-                    continue
-
-                dispatch_combination["base_meta"]["data"]["spec"]["columns"] = []
-                dispatch_combination["tag_name"] = tag_name
-                for col_segment in list_of_list_segments(
-                    sumo,
-                    uuid,
+    dispatch_combination = {}
+    dispatch_combination["uuid"] = uuid
+    # dispatch_combination["iter_name"] = iteration_name
+    # for iter_name, it_tables in it_name_and_tag.items():
+    #     logger.debug(iter_name)
+    #     logger.debug(it_tables)
+    for table_name, tag_names in name_and_tag.items():
+        logger.debug(table_name)
+        logger.debug(tag_names)
+        dispatch_combination["table_name"] = table_name
+        for tag_name in tag_names:
+            try:
+                (
+                    dispatch_combination["object_ids"],
+                    dispatch_combination["base_meta"],
+                    dispatch_combination["table_index"],
+                ) = ut.query_for_table(
+                    sumo, uuid, table_name, tag_name, iteration_name, pit
+                )
+            except HTTPStatusError:
+                logger.warning(
+                    "Cannot get results for comination (%s, %s)",
                     table_name,
                     tag_name,
-                    dispatch_combination["table_index"],
-                    pit,
-                    seg_length,
-                ):
-                    dispatch_combination["columns"] = col_segment
-                    dispatch_info.append(deepcopy(dispatch_combination))
+                )
+                continue
+
+            dispatch_combination["base_meta"]["data"]["spec"]["columns"] = []
+            dispatch_combination["tag_name"] = tag_name
+            for col_segment in list_of_list_segments(
+                dispatch_combination["base_meta"],
+                seg_length,
+            ):
+                dispatch_combination["columns"] = col_segment
+                dispatch_info.append(deepcopy(dispatch_combination))
     return dispatch_info
 
 

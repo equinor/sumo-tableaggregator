@@ -15,12 +15,12 @@ def fix_uuid():
     Returns:
         str: uuid of case
     """
-    return "4582d741-ee41-485b-b2ea-912a7d7dc57c"
+    return "9c9d9a52-1cf4-44cc-829f-23b8334ae813"
     # return "dfac6a1b-c6a4-408a-94a1-cb292693da97"
 
 
 @pytest.fixture(name="sumo", scope="module")
-def fix_sumo(case_env="prod"):
+def fix_sumo(case_env="preview"):
     """Return client for given environment
 
     Args:
@@ -50,7 +50,7 @@ def test_query_for_it_name_and_tags(uuid, sumo, pit):
         sumo (SumoClient): Client for given environment
         pit (sumo.pit): point in time for store
     """
-    print(dispatch.query_for_it_name_and_tags(sumo, uuid, pit))
+    print(dispatch.query_for_names_and_tags(sumo, uuid, pit))
 
 
 def test_query_for_columns(sumo, uuid, pit):
@@ -62,7 +62,7 @@ def test_query_for_columns(sumo, uuid, pit):
         pit (sumo.pit): point in time for store
 
     """
-    results = dispatch.query_for_columns(sumo, uuid, "SNORRE", "summary", pit)
+    results = dispatch.query_for_columns(sumo, uuid, "TROLL", "summary", pit)
     correct_len = 31872
     found_len = len(results)
     assert (
@@ -81,7 +81,7 @@ def test_collect_it_name_and_tag(sumo, uuid, pit):
         pit (sumo.pit): point in time for store
     """
     print("-------")
-    print(dispatch.collect_it_name_and_tag(sumo, uuid, pit))
+    print(dispatch.collect_names_and_tags(sumo, uuid, pit))
 
 
 def test_list_of_list_segments(sumo, uuid, pit):
@@ -101,14 +101,14 @@ def test_list_of_list_segments(sumo, uuid, pit):
     ), f"Actual segments: {actual_segments}, should be {correct_segments}"
 
 
-def test_generate_dispatch_info(uuid, env="prod"):
+def test_generate_dispatch_info(uuid, env="preview"):
     """Test function generate_dispatch_info
 
     Args:
         uuid (str): case uuid
         env (str, optional): sumo environment. Defaults to "prod".
     """
-    tasks = dispatch.generate_dispatch_info(uuid, env)
+    tasks = dispatch.generate_dispatch_info(uuid, env, "iter-1")
     print(tasks)
     print(f"Tasks made %s {len(tasks)}")
     with open("dispath_info_snorre.json", "w", encoding="utf-8") as outfile:
