@@ -364,7 +364,7 @@ def query_sumo(
         f"class:table AND _sumo.parent_object:{case_uuid}"
         + f" AND data.name:{name} AND data.tagname:{tag}"
         + f" AND fmu.iteration.name:{iteration}"
-        + " AND NOT fmu.aggregation.operation:*"
+        + " AND fmu.context.stage:realization"
     )
     logger.debug("Passing query: %s", query)
     if search_after is None:
