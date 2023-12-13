@@ -27,14 +27,9 @@ def query_for_names_and_tags(
                 "must": [
                     {"term": {"_sumo.parent_object.keyword": {"value": case_uuid}}},
                     {"term": {"class.keyword": {"value": "table"}}},
-                    {"term": {"fmu.iteration.name": {"value": iter_name}}},
-                ],
-                "must_not": [
-                    {
-                        "term": {
-                            "fmu.aggregation.operation.keyword": {"value": "collection"}
-                        }
-                    },
+                    {"term": {"fmu.iteration.name.keyword": {"value": iter_name}}},
+                    {"term": {"fmu.context.stage.keyword": {"value": "realization"}}},
+
                 ],
             }
         },
@@ -139,7 +134,7 @@ def list_of_list_segments(sumo, uuid, name, tagname, table_index, pit, seg_lengt
     return segmented_list
 
 
-def generate_dispatch_info(uuid, env, token=None, pit=None, seg_length=250):
+def generate_dispatch_info(uuid, env, iteration_name, token=None, pit=None, seg_length=250):
     """Generate dispatch info for all batch jobs to run
 
     Args:
@@ -157,7 +152,7 @@ def generate_dispatch_info(uuid, env, token=None, pit=None, seg_length=250):
         pit = sumo.post("/pit", params={"keep-alive": "1m"}).json()["id"]
 
     dispatch_info = []
-    it_name_and_tag = collect_it_name_and_tag(sumo, uuid, pit)
+    it_name_and_tag = collect_names_and_tags(sumo, iteration_name, uuid, pit)
     logger.debug("---------")
     logger.debug(it_name_and_tag)
     logger.debug("---------")
