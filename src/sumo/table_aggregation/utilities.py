@@ -942,12 +942,12 @@ def prepare_object_launch(meta: dict, table, name, operation):
     )
     print(f"Full meta: {full_meta}", flush=True)
     full_meta["file"]["checksum_md5"] = md5
-    full_meta["fmu"]["aggregation"] = {
-        "id": uuid_from_string(md5),
-        "operation": operation,
-    }
-    # full_meta["fmu"]["aggregation"]["id"] = uuid_from_string(md5)
-    # full_meta["fmu"]["aggregation"]["operation"] = operation
+    # full_meta["fmu"]["aggregation"] = {
+    #     "id": uuid_from_string(md5),
+    #     "operation": operation,
+    # }
+    full_meta["fmu"]["aggregation"]["id"] = uuid_from_string(md5)
+    full_meta["fmu"]["aggregation"]["operation"] = operation
     full_meta["data"]["format"] = "arrow"
     full_meta["data"]["spec"]["columns"] = table.column_names
     if operation == "collection":
