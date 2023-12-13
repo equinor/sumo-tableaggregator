@@ -444,10 +444,15 @@ def query_for_table(
     for hit in query_ids["hits"]["hits"]:
         blob_ids[hit["_source"]["fmu"]["realization"]["id"]] = hit["_id"]
 
+    table_index = query_result["hits"]["hits"][0]["_source"]["data"]["table_index"]
     return (
         blob_ids,
-        query_result["hits"]["hits"][0]["_source"],
-        query_result["hits"]["hits"][0]["_source"]["data"]["table_index"],
+        convert_metadata(
+            query_result["hits"]["hits"][0]["_source"],
+            list(blob_ids.values()),
+            table_index,
+        ),
+        table_index,
     )
 
 
