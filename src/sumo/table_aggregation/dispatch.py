@@ -76,39 +76,7 @@ def collect_names_and_tags(sumo, uuid, iteration, pit=None):
     return names_and_tags
 
 
-def query_for_columns(sumo, uuid, name, tagname, pit, size=200):
-    """Find column names for given combination of name and tagname for a table
-
-    Args:
-        sumo (SumoClient): Client for given sumo environment
-        uuid (str): uuid for a given case
-        name (str): name for a specific table
-        tagname (str): tagname for a given table
-        size (int, optional): size of query. Defaults to 200.
-
-    Returns:
-        list: all available columns in the table combination
-    """
-    logger = ut.init_logging(__name__ + ".query_for_columns")
-
-    query = (
-        f"_sumo.parent_object:{uuid} AND data.name:{name} AND data.tagname:{tagname} "
-        + "AND NOT fmu.aggregation.operation:*"
-    )
-    select = "data.spec.columns"
-    logger.debug("Submitting query: %s", query)
-    p_dict = {"$query": query, "$size": size, "$pit": pit, "$select": select}
-    results = sumo.get("/search", p_dict).json()
-    logger.debug("----\n Returned %s hits\n-----", len(results["hits"]["hits"]))
-
-    all_cols = set()
-    for hit in results["hits"]["hits"]:
-        all_cols.update(hit["_source"]["data"]["spec"]["columns"])
-
-    return list(all_cols)
-
-
-def list_of_list_segments(metadata, seg_length=1000):
+def list_of_list_segments(metadata, seg_length=250):
     """Return a list of list segments from given one table
 
     Args:
@@ -118,6 +86,7 @@ def list_of_list_segments(metadata, seg_length=1000):
     Returns:
         list: list with lists that are segments of the columns available in table
     """
+    print(metadata)
     long_list = metadata["data"]["spec"]["columns"]
     segmented_list = []
     for segment in ut.split_list(long_list, seg_length):
@@ -179,7 +148,6 @@ def generate_dispatch_info(
                 )
                 continue
 
-            dispatch_combination["base_meta"]["data"]["spec"]["columns"] = []
             dispatch_combination["tag_name"] = tag_name
             for col_segment in list_of_list_segments(
                 dispatch_combination["base_meta"],

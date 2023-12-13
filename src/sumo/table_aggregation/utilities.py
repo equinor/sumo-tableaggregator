@@ -329,76 +329,6 @@ def query_for_name_and_tags(sumo: SumoClient, case_uuid: str, iteration: str):
     return name_with_tags
 
 
-def query_sumo(
-    sumo: SumoClient,
-    case_uuid: str,
-    name: str,
-    tag: str,
-    iteration: str,
-    pit: str,
-    search_after=None,
-) -> dict:
-    """Query for given table type
-
-    Args:
-        sumo (SumoClient): initialized sumo client
-        case_uuid (str): case uuid
-        name (str): name of table
-        iteration (str): iteration number
-        tag (str): tagname of table. Defaults to "".
-        pit (str): id for point in time
-
-    Returns:
-        dict: query results
-    """
-    logger = init_logging(__name__ + ".query_sumo")
-    logger.debug(
-        "At query: id: %s, name: %s, tag: %s, it: %s",
-        case_uuid,
-        name,
-        tag,
-        iteration,
-    )
-    buck_term = "file.checksum_md5.keyword"
-    query = (
-        f"class:table AND _sumo.parent_object:{case_uuid}"
-        + f" AND data.name:{name} AND data.tagname:{tag}"
-        + f" AND fmu.iteration.name:{iteration}"
-        + " AND fmu.context.stage:realization"
-    )
-    logger.debug("Passing query: %s", query)
-    if search_after is None:
-        logger.debug("No search after specified")
-        query_results = sumo.get(
-            "/search",
-            {
-                "$query": query,
-                "$sort": "_doc:asc",
-                "$pit": pit,
-                "$size": 100,
-                "$buckets": buck_term,
-            },
-        ).json()
-    else:
-        logger.debug("\n\nIn a search after situation\n\n")
-        time.sleep(2)
-        query_results = sumo.get(
-            "/search",
-            {
-                "$query": query,
-                "$size": 100,
-                "$sort": "_doc:asc",
-                "$pit": pit,
-                "$search_after": json.dumps(search_after),
-                "$buckets": buck_term,
-            },
-        ).json()
-    buckets = get_buckets(query_results["aggregations"], buck_term)
-    logger.debug("Returning query results %s", query_results)
-    logger.debug("And returning buckets")
-    return query_results, buckets
-
-
 def query_for_table(
     sumo: SumoClient,
     case_uuid: str,
@@ -454,65 +384,6 @@ def query_for_table(
         ),
         table_index,
     )
-
-
-def query_for_table_old(
-    sumo: SumoClient,
-    case_uuid: str,
-    name: str,
-    tag: str,
-    iteration: str,
-    pit: str = None,
-    **kwargs: dict,
-) -> tuple:
-    """Fetch object id numbers and metadata
-
-    Args:
-        sumo (SumoClient): intialized sumo client
-        case_uuid (str): case uuid
-        name (str): name of table
-        tag (str, optional): tagname of table. Defaults to "".
-        iteration (str): iteration number
-
-
-    Raises:
-        RuntimeError: if no tables found
-
-    Returns:
-        tuple: contains parent id, object ids, meta data stub, all real numbers
-               and dictionary containing all global variables for all realizations
-    """
-    logger = init_logging(__name__ + ".query_for_table")
-    logger.debug(
-        "Passing to query: id: %s, name: %s, tag: %s, it: %s",
-        case_uuid,
-        name,
-        tag,
-        iteration,
-    )
-    unique_buck = set()
-    query_results, buck = query_sumo(sumo, case_uuid, name, tag, iteration, pit)
-    total_hits = query_results["hits"]["total"]["value"]
-    if total_hits == 0:
-        raise RuntimeError("Query returned with no hits, if you want results: modify!")
-    hits = query_results["hits"]["hits"]
-    unique_buck.update(buck)
-
-    while len(hits) < total_hits:
-        query_results, more_buck = query_sumo(
-            sumo, case_uuid, name, tag, iteration, pit, hits[-1]["sort"]
-        )
-        hits.extend(query_results["hits"]["hits"])
-        unique_buck.update(more_buck)
-        logger.debug("hits actually contained in request: %s", len(hits))
-
-    if len(unique_buck) == 1:
-        logger.warning(
-            "Name: %s and tag %s, all objects are equal, will only pass one", name, tag
-        )
-        hits = hits[:1]
-    results = get_blob_ids_w_metadata(hits, **kwargs)
-    return results
 
 
 def uuid_from_string(string: str) -> str:
@@ -1237,7 +1108,6 @@ def convert_metadata(
     agg_metadata["fmu"]["context"]["stage"] = "iteration"
     # Since no file on disk, trying without paths
     agg_metadata["file"]["absolute_path"] = ""
-    agg_metadata["data"]["spec"]["columns"] = []
     logger.info("The table index will be %s", agg_metadata["data"]["table_index"])
 
     return agg_metadata

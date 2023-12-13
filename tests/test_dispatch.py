@@ -53,24 +53,6 @@ def test_query_for_it_name_and_tags(uuid, sumo, pit):
     print(dispatch.query_for_names_and_tags(sumo, uuid, pit))
 
 
-def test_query_for_columns(sumo, uuid, pit):
-    """Test function query_for_columns
-
-    Args:
-        uuid (str): case uuid
-        sumo (SumoClient): Client for given environment
-        pit (sumo.pit): point in time for store
-
-    """
-    results = dispatch.query_for_columns(sumo, uuid, "TROLL", "summary", pit)
-    correct_len = 31872
-    found_len = len(results)
-    assert (
-        found_len == correct_len
-    ), f"Found nr of cols is {found_len}, should be {correct_len}"
-
-    assert "FOPT" in results, "NO FOPT, DISASTER!!"
-
 
 def test_collect_it_name_and_tag(sumo, uuid, pit):
     """Test function collect_it_name_and_tag
@@ -109,32 +91,12 @@ def test_generate_dispatch_info(uuid, env="preview"):
         env (str, optional): sumo environment. Defaults to "prod".
     """
     tasks = dispatch.generate_dispatch_info(uuid, env, "iter-1")
-    print(tasks)
-    print(f"Tasks made %s {len(tasks)}")
-    with open("dispath_info_snorre.json", "w", encoding="utf-8") as outfile:
-        json.dump(tasks, outfile)
-    # print(f"{len(tasks)} element created")
-    # # the_essentials = ["FOPT", "FOPR", "FGPT", "FGPR"]
-    # fopt_found = False
-    # prev_list = []
-    # mandatories = ["table_index", "columns", "object_ids", "base_meta"]
-    # all_mandatories_found = False
-    # lists_equal = False
-    # for task in tasks:
-    #     if "FOPT" in task["columns"]:
-    #         fopt_found = True
-    #     for mandatory in mandatories:
-    #         all_mandatories_found = mandatory in task.keys()
-    #     if prev_list == task["columns"]:
-    #         lists_equal = True
-    #     prev_list = task["columns"]
+    for task in tasks:
+        assert len(task["columns"]) <= len(task["table_index"]) + 250, f"Too many columns in task"
+        assert len(task["columns"]) > len(task["table_index"]), "more columns than table index"
 
+    assert len(tasks) == 104, "Should be 104 jobs for Troll case"
 
-#
-# assert fopt_found, "FOPT not found"
-# assert all_mandatories_found, "Some of the mandatories not found"
-# # assert not lists_equal, "Some list elements are equal"
-# assert len(tasks) == 47, "Wrong length!"
 
 
 def test_aggregate_and_upload(sumo):
