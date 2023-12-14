@@ -5,6 +5,8 @@ from uuid import UUID
 import pyarrow as pa
 from sumo.table_aggregation import utilities as ut
 import yaml
+import pandas as pd
+import pyarrow as pa
 
 logging.basicConfig(level="DEBUG", format="%(name)s %(levelname)s: %(message)s")
 
@@ -247,3 +249,9 @@ def test_cast_correctly():
     assert (
         rest_type == pa.float32()
     ), f"all others are {rest_type}, should be single (float32)"
+
+
+def test_table_to_bytes():
+    table = pa.Table.from_pandas(pd.DataFrame({"test": [1, 2]}))
+    byte_string = ut.table_to_bytes(table)
+    print(len(byte_string))

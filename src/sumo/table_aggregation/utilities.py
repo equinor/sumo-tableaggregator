@@ -844,7 +844,7 @@ def prepare_object_launch(meta: dict, table, name, operation):
     # full_meta["data"]["name"] = name
     full_meta["display"]["name"] = name
     full_meta["file"]["relative_path"] = unique_name
-    size = sys.getsizeof(full_meta) / (1024 * 1024)
+    size = sys.getsizeof(json.dumps(full_meta)) / (1024 * 1024)
     logger.info("Size of meta dict: %.2e\n", size)
     logger.debug("Metadata %s", full_meta)
     logger.debug("Object %s ready for launch", unique_name)
@@ -923,7 +923,7 @@ def upload_table(
     success_response = (200, 201)
     meta_upload = True
     while rsp_code not in success_response:
-        size_of_meta = sys.getsizeof(meta) / (1024 * 1024)
+        size_of_meta = sys.getsizeof(json.dumps(meta)) / (1024 * 1024)
         try:
             response = sumo.post(path=path, json=meta)
             rsp_code = response.status_code
@@ -945,6 +945,7 @@ def upload_table(
                 response = sumo.blob_client.upload_blob(blob=byte_string, url=blob_url)
                 rsp_code = response.status_code
                 logger.info("Response blob %s", rsp_code)
+                logger.info("Uploaded byte string with size %s", len(byte_string))
             except Exception:
                 exp_type, exp, _ = sys.exc_info()
                 logger.warning(
