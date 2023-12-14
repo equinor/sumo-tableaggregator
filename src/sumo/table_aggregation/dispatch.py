@@ -149,10 +149,14 @@ def generate_dispatch_info(
 
             dispatch_combination["tag_name"] = tag_name
             for col_segment in list_of_list_segments(
-                dispatch_combination["base_meta"],
+                base_meta,
                 seg_length,
             ):
                 dispatch_combination["columns"] = col_segment
+                dispatch_combination["base_meta"] = deepcopy(base_meta)
+                # To avoid too large payload
+                dispatch_combination["base_meta"]["data"]["spec"]["columns"] = []
+
                 dispatch_info.append(deepcopy(dispatch_combination))
     return dispatch_info
 

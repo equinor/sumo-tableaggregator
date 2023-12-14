@@ -92,8 +92,10 @@ def test_generate_dispatch_info(uuid, env="preview"):
     """
     tasks = dispatch.generate_dispatch_info(uuid, env, "iter-1")
     for task in tasks:
-        assert len(task["columns"]) <= len(task["table_index"]) + 250, f"Too many columns in task"
+        assert len(task["columns"]) <= len(task["table_index"]) + 250, "Too many columns in task"
         assert len(task["columns"]) > len(task["table_index"]), "more columns than table index"
+        assert len(task["base_meta"]["data"]["spec"]["columns"]) == 0, f"data.spec.columns not nulled ({len(task['base_meta']['data']['spec']['columns'])})"
+        print(len(task["base_meta"]["data"]["spec"]["columns"]))
 
     assert len(tasks) == 104, "Should be 104 jobs for Troll case"
 
