@@ -86,7 +86,6 @@ def list_of_list_segments(metadata, seg_length=250):
     Returns:
         list: list with lists that are segments of the columns available in table
     """
-    print(metadata)
     long_list = metadata["data"]["spec"]["columns"]
     segmented_list = []
     for segment in ut.split_list(long_list, seg_length):
@@ -135,14 +134,14 @@ def generate_dispatch_info(
             try:
                 (
                     dispatch_combination["object_ids"],
-                    dispatch_combination["base_meta"],
+                    base_meta,
                     dispatch_combination["table_index"],
                 ) = ut.query_for_table(
                     sumo, uuid, table_name, tag_name, iteration_name, pit
                 )
             except HTTPStatusError:
                 logger.warning(
-                    "Cannot get results for comination (%s, %s)",
+                    "Cannot get results for combination (%s, %s)",
                     table_name,
                     tag_name,
                 )
