@@ -338,6 +338,19 @@ def query_for_table(
     pit: str = None,
     **kwargs: dict,
 ):
+    """Get blob id's for one specific table combination of name,tagname, and iteration
+
+    Args:
+        sumo (SumoClient): Initialized client
+        case_uuid (str): case uuid
+        name (str): name of table
+        tagname (str): tagname of table
+        iterationname (str): name of iteration
+        pit (str, optional): point in time. Defaults to None.
+
+    Returns:
+        tuple: contains metadata object, realization ids as list and blob_id's
+    """
     logger = init_logging(__name__ + ".query_for_table")
     query = {
         "query": {
