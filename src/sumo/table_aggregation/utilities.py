@@ -429,8 +429,11 @@ def get_object(object_id: str, cols_to_read: list, sumo: SumoClient) -> pa.Table
 
         table = blob_to_table(BytesIO(blob.content))
         pq.write_table(table, file_path)
-
-    return pq.read_table(file_path, columns=list(cols_to_read))
+    try:
+        table = pq.read_table(file_path, columns=list(cols_to_read))
+    except pa.lib.ArrowInvalid:
+        table = pa.Table.from_pandas(pd.DataFrame([]))
+    return table
 
 
 def blob_to_table(blob_object) -> pa.Table:
