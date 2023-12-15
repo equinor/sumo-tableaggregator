@@ -715,13 +715,14 @@ def reconstruct_table(
         ]
         if len(missing):
             logger.info("Real: %s, missing these columns %s", real_nr, missing)
+
         for miss in missing:
             real_table = real_table.add_column(0, miss, pa.array([None] * rows))
         logger.debug("Table created %s", type(real_table))
 
         # Sort to ensure that table has cols in same order even
         # when missing cols occur
-        real_table = real_table.select(sorted(real_table.column_names))
+        # real_table = real_table.select(sorted(real_table.column_names))
     except HTTPStatusError:
         real_table = pa.table([])
         logger.error("Could not read table in real %s (object id: %s)", real_nr, object_id)
