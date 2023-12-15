@@ -493,7 +493,7 @@ def blob_to_table(blob_object) -> pa.Table:
         try:
             table = pa.Table.from_pandas(frame)
         except KeyError:
-            table = pa.Table.from_pandas(pd.DataFrame())
+            table = pa.table([])
         fformat = "csv"
     except UnicodeDecodeError:
         try:
