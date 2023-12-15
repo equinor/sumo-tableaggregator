@@ -421,6 +421,7 @@ def get_object(object_id: str, cols_to_read: list, sumo: SumoClient) -> pa.Table
     Returns:
         pa.Table: the object as pyarrow
     """
+    logger = init_logging(__name__ + ".get_object")
     query = f"/objects('{object_id}')/blob"
     file_path = f"{object_id}.parquet"
 
@@ -429,6 +430,7 @@ def get_object(object_id: str, cols_to_read: list, sumo: SumoClient) -> pa.Table
 
         table = blob_to_table(BytesIO(blob.content))
         pq.write_table(table, file_path)
+        logger.debug("Written object to file %s", file_path)
     try:
         table = pq.read_table(file_path, columns=list(cols_to_read))
     except pa.lib.ArrowInvalid:
@@ -686,6 +688,7 @@ def reconstruct_table(
         real_table = real_table.select(sorted(real_table.column_names))
     except HTTPStatusError:
         real_table = pa.table([])
+        logger.error("Could not read table in real %s (object id: %s)", real_nr, object_id)
     logger.info("Reconnstructed table, size is %s", real_table.nbytes)
     return real_table
 
