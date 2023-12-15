@@ -255,3 +255,6 @@ def test_table_to_bytes():
     table = pa.Table.from_pandas(pd.DataFrame({"test": [1, 2]}))
     byte_string = ut.table_to_bytes(table)
     print(len(byte_string))
+
+def test_get_object(sumo):
+    table = ut.get_object('8557eacd-ed4f-a80d-d466-467301f22bbd', ["DATE"], sumo)

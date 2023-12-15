@@ -410,6 +410,39 @@ def uuid_from_string(string: str) -> str:
     """
     return str(uuid.UUID(hashlib.md5(string.encode("utf-8")).hexdigest()))
 
+def read_incomplete_table(file_path, cols_to_read):
+    """Read parquet table with available columns
+
+    Args:
+        file_path (str): path to file to read
+        cols_to_read (set): unique columns to try to read
+
+    Returns:
+        pa.Table: read table
+    """
+    logger = init_logging(__name__ + ".read_incomplete_table")
+    # Stolen from https://issues.apache.org/jira/browse/ARROW-11473
+    len_asked_for = len(cols_to_read)
+    try:
+        meta = pq.read_metadata(file_path) # reads only the metadata
+        logger.debug("Wanting to retrieve %s columns", )
+        # Get the column names from the schema
+        table_columns = meta.schema.names
+        logger.debug("table contains %s columns", len(table_columns))
+        # Do an intersection with the names you want to read
+        available_columns = list(set(cols_to_read) & set(table_columns))
+        len_retrieved = len(available_columns)
+        try:
+            table = pq.read_table(file_path, columns=available_columns)
+            logger.warning("Got %s columns less than asked for", len_asked_for - len_retrieved)
+        except pa.lib.ArrowInvalid:
+            table = pa.table([])
+            logger.error("file %s is empty", file_path)
+    except pa.lib.ArrowInvalid:
+        table = pa.table([])
+        logger.error("Table with name %s is completely empty", file_path)
+    return table
+
 
 def get_object(object_id: str, cols_to_read: list, sumo: SumoClient) -> pa.Table:
     """fetche sumo object as pa.Table
@@ -433,8 +466,11 @@ def get_object(object_id: str, cols_to_read: list, sumo: SumoClient) -> pa.Table
         logger.debug("Written object to file %s", file_path)
     try:
         table = pq.read_table(file_path, columns=list(cols_to_read))
-    except pa.lib.ArrowInvalid:
-        table = pa.Table.from_pandas(pd.DataFrame([]))
+        logger.debug("Table is read as should be!")
+    except (pa.lib.ArrowInvalid, KeyError):
+
+        table = read_incomplete_table(file_path, cols_to_read)
+
     return table
 
 

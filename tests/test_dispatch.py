@@ -1,5 +1,6 @@
 from sumo.wrapper import SumoClient
 from sumo.table_aggregation import dispatch
+from sumo.table_aggregation import utilities as ut
 import pytest
 import logging
 import json
@@ -101,10 +102,13 @@ def test_generate_dispatch_info(uuid, env="preview"):
 
 
 def test_aggregate_and_upload(sumo):
-    json_file = "data/dispath_info_snorre.json"
 
     content = []
-    with open(Path(__file__).parent / json_file, "r", encoding="utf-8") as stream:
+    with open("failed.json", "r", encoding="utf-8") as stream:
         content = json.load(stream)
     print(content[0])
     dispatch.aggregate_and_upload(content[0], sumo)
+
+def test_get_object(sumo):
+    table = ut.get_object('8557eacd-ed4f-a80d-d466-467301f22bbd', ["DATE"], sumo)
+    # table = ut.get_object('fe7b75c5-9219-548f-476f-46c4535a98e3', ["DATE"], sumo)
