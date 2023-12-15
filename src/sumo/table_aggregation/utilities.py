@@ -421,16 +421,18 @@ def get_object(object_id: str, cols_to_read: list, sumo: SumoClient) -> pa.Table
     Returns:
         pa.Table: the object as pyarrow
     """
-    logger = init_logging(__name__ + ".get_object")
-
     query = f"/objects('{object_id}')/blob"
-    blob = sumo.get(query)
-    try:
-        table = blob_to_table(BytesIO(blob.content)).select(list(cols_to_read))
-    except KeyError as keye:
-        logger.error(keye)
-        table = pa.Table.from_pandas(pd.DataFrame([]))
+    file_path = f"{object_id}.parquet"
 
+    if not os.path.isfile(file_path):
+        blob = sumo.get(query)
+
+        table = blob_to_table(BytesIO(blob.content))
+        pq.write_table(table, file_path)
+    try:
+        table = pq.read_table(file_path, columns=list(cols_to_read))
+    except pa.lib.ArrowInvalid:
+        table = pa.Table.from_pandas(pd.DataFrame([]))
     return table
 
 
