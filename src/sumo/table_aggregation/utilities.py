@@ -884,7 +884,6 @@ def prepare_object_launch(meta: dict, table, name, operation):
     full_meta["data"]["spec"]["columns"] = table.column_names
     if operation == "collection":
         full_meta["data"]["table_index"].append("REAL")
-    # full_meta["data"]["name"] = name
     full_meta["display"]["name"] = name
     full_meta["file"]["relative_path"] = unique_name
     size = sys.getsizeof(json.dumps(full_meta)) / (1024 * 1024)
