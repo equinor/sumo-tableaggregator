@@ -21,8 +21,8 @@ import pyarrow as pa
 import pyarrow.compute as pc
 from pyarrow import feather
 import pyarrow.parquet as pq
-from sumo.wrapper import SumoClient
 from httpx import HTTPStatusError
+from sumo.wrapper import SumoClient
 
 
 # inner psutil function
