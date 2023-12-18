@@ -787,7 +787,8 @@ def do_stats(frame, index, col_name, aggfunc, aggname):
     logger.debug("Nr of columns prior to groupby %s of %s: %s", aggname, col_name, len(frame.columns))
     try:
         stat = frame.groupby(index)[col_name].agg(aggfunc).to_frame().reset_index()
-    except (TypeError, NotImplementedError, BrokenPipeError):
+    except (TypeError, NotImplementedError, BrokenPipeError) as error:
+        logger.warning("Aggregation failed with error %s, results will be empty", error)
         stat = pd.DataFrame()
     table = pa.Table.from_pandas(stat)
     output = (aggname, table)
