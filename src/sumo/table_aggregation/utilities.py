@@ -785,13 +785,18 @@ def do_stats(frame, index, col_name, aggfunc, aggname):
     logger = init_logging(__name__ + ".do_stats")
     # frame = table.to_pandas()
     logger.debug("Nr of columns prior to groupby %s of %s: %s", aggname, col_name, len(frame.columns))
-    try:
-        stat = frame.groupby(index)[col_name].agg(aggfunc).to_frame().reset_index()
-    except (TypeError, NotImplementedError, BrokenPipeError) as error:
-        logger.warning("Aggregation failed with error %s, results will be empty", error)
+    if isinstance(frame[col_name], object):
+        try:
+            stat = frame.groupby(index)[col_name].agg(aggfunc).to_frame().reset_index()
+        except (TypeError, NotImplementedError, BrokenPipeError) as error:
+            logger.warning("Aggregation failed with error %s, results will be empty", error)
+            stat = pd.DataFrame()
+    else:
+        logger.warning("Statistical aggregation on object column %s", col_name)
         stat = pd.DataFrame()
     table = pa.Table.from_pandas(stat)
     output = (aggname, table)
+
     logger.debug("%s of %s returning %s columns", output[0], col_name,
                  len(output[1].column_names))
     return output
