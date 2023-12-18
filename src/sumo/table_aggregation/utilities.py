@@ -784,14 +784,15 @@ def do_stats(frame, index, col_name, aggfunc, aggname):
     """
     logger = init_logging(__name__ + ".do_stats")
     # frame = table.to_pandas()
-    logger.debug("Nr of columns prior to groupby: %s", len(frame.columns))
+    logger.debug("Nr of columns prior to groupby %s of %s: %s", aggname, col_name, len(frame.columns))
     try:
         stat = frame.groupby(index)[col_name].agg(aggfunc).to_frame().reset_index()
     except (TypeError, NotImplementedError, BrokenPipeError):
         stat = pd.DataFrame()
     table = pa.Table.from_pandas(stat)
     output = (aggname, table)
-    logger.debug("%s %s", output[0], len(output[1].column_names))
+    logger.debug("%s of %s returning %s columns", output[0], col_name,
+                 len(output[1].column_names))
     return output
 
 
@@ -834,7 +835,7 @@ def make_stat_aggregations(
         )
         logger.debug(
             "Columns after conversion to pandas df %s (size %s)",
-            frame.columns,
+            dict(zip(frame.columns.tolist(),frame.dtypes.tolist()))
             frame.shape,
         )
         stat_input.extend(
@@ -866,7 +867,6 @@ def prepare_object_launch(meta: dict, table, name, operation):
     md5 = md5sum(byte_string)
     full_meta = deepcopy(meta)
     parent = full_meta["data"]["name"]
-    logger.debug("Name prior to change: %s", parent)
     unique_name = (
         parent
         + f"--{name}--{tag}--{operation}--"
