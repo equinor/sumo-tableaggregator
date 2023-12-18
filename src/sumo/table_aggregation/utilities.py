@@ -836,7 +836,7 @@ def make_stat_aggregations(
         )
         logger.debug(
             "Columns after conversion to pandas df %s (size %s)",
-            dict(zip(frame.columns.tolist(),frame.dtypes.tolist()))
+            dict(zip(frame.columns.tolist(),frame.dtypes.tolist())),
             frame.shape,
         )
         stat_input.extend(
@@ -901,7 +901,7 @@ def table_to_bytes(table: pa.Table):
         table (pa.Table): the table to be converted
 
     Returns:
-        _type_: table as bytestring
+        bytes: table as bytestring
     """
     sink = pa.BufferOutputStream()
     pq.write_table(table, sink)
