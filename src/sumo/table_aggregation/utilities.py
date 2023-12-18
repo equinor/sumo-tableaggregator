@@ -964,39 +964,19 @@ def upload_table(
     path = f"/objects('{parent_id}')"
     rsp_code = "0"
     success_response = (200, 201)
-    meta_upload = True
-    while rsp_code not in success_response:
-        size_of_meta = sys.getsizeof(json.dumps(meta)) / (1024 * 1024)
-        try:
-            response = sumo.post(path=path, json=meta)
-            rsp_code = response.status_code
-            logger.info("response meta: %s", rsp_code)
-
-        except Exception:
-            exp_type, exp, _ = sys.exc_info()
-            logger.warning(
-                "Exception %s while uploading metadata (%s) (Size: %.2e MB)",
-                exp,
-                str(exp_type),
-                size_of_meta,
-            )
-    if meta_upload:
+    response = sumo.post(path=path, json=meta)
+    meta_rsp_code = response.status_code
+    logger.info("response meta: %s", meta_rsp_code)
+    logger.info("Response type %s", type(meta_rsp_code))
+    if meta_rsp_code in success_response:
         blob_url = response.json().get("blob_url")
-        rsp_code = "0"
-        while rsp_code not in success_response:
-            try:
-                response = sumo.blob_client.upload_blob(blob=byte_string, url=blob_url)
-                rsp_code = response.status_code
-                logger.info("Response blob %s", rsp_code)
-                logger.info("Uploaded byte string with size %s", len(byte_string))
-            except Exception:
-                exp_type, exp, _ = sys.exc_info()
-                logger.warning(
-                    "Exception %s while uploading metadata (%s)", exp, str(exp_type)
-                )
+        response = sumo.blob_client.upload_blob(blob=byte_string, url=blob_url)
+        rsp_code = response.status_code
+        logger.info("Response blob %s", rsp_code)
+        logger.info("Uploaded byte string with size %s", len(byte_string))
         logger.info("uploaded %s", meta["file"]["relative_path"])
     else:
-        logger.error("Cannot upload blob since no meta upload")
+        logger.error("Cannot upload blob since no meta upload, response was %s", meta_rsp_code)
 
 
 def upload_stats(
