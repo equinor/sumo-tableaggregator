@@ -788,8 +788,9 @@ def do_stats(frame, index, col_name, aggfunc, aggname):
     if isinstance(frame[col_name], object):
         try:
             stat = frame.groupby(index)[col_name].agg(aggfunc).to_frame().reset_index()
-        except (TypeError, NotImplementedError, BrokenPipeError) as error:
-            logger.warning("Aggregation failed with error %s, results will be empty", error)
+        except Exception:
+            exception_info = sys.exc_info()
+            logger.warning("Aggregation failed with error: %s (%s), results will be empty", exception_info[1], exception_info[0])
             stat = pd.DataFrame()
     else:
         logger.warning("Statistical aggregation on object column %s", col_name)
