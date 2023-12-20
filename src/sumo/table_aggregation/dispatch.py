@@ -8,7 +8,7 @@ from httpx import HTTPStatusError
 
 
 def query_for_names_and_tags(
-    sumo: SumoClient, case_uuid: str, iter_name: str = "0", pit=None
+    sumo: SumoClient, case_uuid: str, iter_name: str = "0"
 ):
     """Query sumo for iteration name, and corresponding combinations of names and tagnames
 
@@ -44,27 +44,24 @@ def query_for_names_and_tags(
         },
         "size": 0,
     }
-    # if pit is not None:
-    #     query["pit"] = pit
     logger.debug("\nSubmitting query for tags: %s\n", query)
     results = sumo.post("/search", json=query).json()
     logger.debug("\nQuery results\n %s", results["aggregations"]["name"]["buckets"])
     return results["aggregations"]["name"]["buckets"]
 
 
-def collect_names_and_tags(sumo, uuid, iteration, pit=None):
+def collect_names_and_tags(sumo, uuid, iteration):
     """Make dict with key as table name, and value list of corresponding tags
 
     Args:
         sumo (SumoClient): Initialized sumo client
         case_uuid (str): uuid for case
         iteration (str): iteration name
-        pit (str): point in time id
 
     Returns:
         dict: the results
     """
-    names = query_for_names_and_tags(sumo, uuid, iteration, pit)
+    names = query_for_names_and_tags(sumo, uuid, iteration)
     names_and_tags = {}
     for name in names:
         name_key = name["key"]
@@ -97,7 +94,7 @@ def list_of_list_segments(metadata, seg_length=250):
 
 
 def generate_dispatch_info(
-    uuid, env, iteration_name, token=None, pit=None, seg_length=250
+    uuid, env, iteration_name, token=None, seg_length=250
 ):
     """Generate dispatch info for all batch jobs to run
 
@@ -105,18 +102,15 @@ def generate_dispatch_info(
         uuid (str): case uuid
         env (str): name of sumo env to read from
         seg_length (str): length of columns to pass per batch job
-        pit (str, optional): point in time id, Defaults to None
 
     Returns:
         list: list of all table combinations
     """
     logger = ut.init_logging(__name__ + ".generate_dispatch_info")
     sumo = SumoClient(env, token)
-    if pit is None:
-        pit = sumo.post("/pit", params={"keep-alive": "1m"}).json()["id"]
 
     dispatch_info = []
-    name_and_tag = collect_names_and_tags(sumo, uuid, iteration_name, pit)
+    name_and_tag = collect_names_and_tags(sumo, uuid, iteration_name)
     logger.debug("---------")
     logger.debug(name_and_tag)
     logger.debug("---------")
@@ -137,7 +131,7 @@ def generate_dispatch_info(
                     base_meta,
                     dispatch_combination["table_index"],
                 ) = ut.query_for_table(
-                    sumo, uuid, table_name, tag_name, iteration_name, pit
+                    sumo, uuid, table_name, tag_name, iteration_name
                 )
             except HTTPStatusError:
                 logger.warning(
