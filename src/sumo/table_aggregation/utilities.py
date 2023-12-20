@@ -719,9 +719,6 @@ def reconstruct_table(
             real_table = real_table.add_column(0, miss, pa.array([None] * rows))
         logger.debug("Table created %s", type(real_table))
 
-        # Sort to ensure that table has cols in same order even
-        # when missing cols occur
-        # real_table = real_table.select(sorted(real_table.column_names))
     except HTTPStatusError:
         real_table = pa.table([])
         logger.error("Could not read table in real %s (object id: %s)", real_nr, object_id)
@@ -879,10 +876,6 @@ def prepare_object_launch(meta: dict, table, name, operation):
     )
     print(f"Full meta: {full_meta}", flush=True)
     full_meta["file"]["checksum_md5"] = md5
-    # full_meta["fmu"]["aggregation"] = {
-    #     "id": uuid_from_string(md5),
-    #     "operation": operation,
-    # }
     full_meta["fmu"]["aggregation"]["id"] = uuid_from_string(md5)
     full_meta["fmu"]["aggregation"]["operation"] = operation
     full_meta["data"]["format"] = "arrow"
