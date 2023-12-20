@@ -409,7 +409,7 @@ def uuid_from_string(string: str) -> str:
     """
     return str(uuid.UUID(hashlib.md5(string.encode("utf-8")).hexdigest()))
 
-def read_incomplete_table(file_path, cols_to_read):
+def read_available_columns(file_path, cols_to_read):
     """Read parquet table with available columns
 
     Args:
@@ -419,7 +419,7 @@ def read_incomplete_table(file_path, cols_to_read):
     Returns:
         pa.Table: read table
     """
-    logger = init_logging(__name__ + ".read_incomplete_table")
+    logger = init_logging(__name__ + ".read_available_columns")
     # Stolen from https://issues.apache.org/jira/browse/ARROW-11473
     len_asked_for = len(cols_to_read)
     try:
@@ -468,7 +468,7 @@ def get_object(object_id: str, cols_to_read: list, sumo: SumoClient) -> pa.Table
         logger.debug("Table is read as should be!")
     except (pa.lib.ArrowInvalid, KeyError):
 
-        table = read_incomplete_table(file_path, cols_to_read)
+        table = read_available_columns(file_path, cols_to_read)
 
     return table
 
