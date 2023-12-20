@@ -108,7 +108,6 @@ def init_logging(name: str) -> logging.Logger:
     returns (logging.Logger): an initialized logger
     """
     logger = logging.getLogger(name)
-    # logger.addHandler(logging.NullHandler())
     return logger
 
 
