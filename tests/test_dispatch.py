@@ -1,5 +1,6 @@
 from sumo.wrapper import SumoClient
 from sumo.table_aggregation import dispatch
+from sumo.table_aggregation import utilities as ut
 import pytest
 import logging
 import json
@@ -15,12 +16,12 @@ def fix_uuid():
     Returns:
         str: uuid of case
     """
-    return "4582d741-ee41-485b-b2ea-912a7d7dc57c"
+    return "9c9d9a52-1cf4-44cc-829f-23b8334ae813"
     # return "dfac6a1b-c6a4-408a-94a1-cb292693da97"
 
 
 @pytest.fixture(name="sumo", scope="module")
-def fix_sumo(case_env="prod"):
+def fix_sumo(case_env="preview"):
     """Return client for given environment
 
     Args:
@@ -50,26 +51,8 @@ def test_query_for_it_name_and_tags(uuid, sumo, pit):
         sumo (SumoClient): Client for given environment
         pit (sumo.pit): point in time for store
     """
-    print(dispatch.query_for_it_name_and_tags(sumo, uuid, pit))
+    print(dispatch.query_for_names_and_tags(sumo, uuid, pit))
 
-
-def test_query_for_columns(sumo, uuid, pit):
-    """Test function query_for_columns
-
-    Args:
-        uuid (str): case uuid
-        sumo (SumoClient): Client for given environment
-        pit (sumo.pit): point in time for store
-
-    """
-    results = dispatch.query_for_columns(sumo, uuid, "SNORRE", "summary", pit)
-    correct_len = 31872
-    found_len = len(results)
-    assert (
-        found_len == correct_len
-    ), f"Found nr of cols is {found_len}, should be {correct_len}"
-
-    assert "FOPT" in results, "NO FOPT, DISASTER!!"
 
 
 def test_collect_it_name_and_tag(sumo, uuid, pit):
@@ -81,7 +64,7 @@ def test_collect_it_name_and_tag(sumo, uuid, pit):
         pit (sumo.pit): point in time for store
     """
     print("-------")
-    print(dispatch.collect_it_name_and_tag(sumo, uuid, pit))
+    print(dispatch.collect_names_and_tags(sumo, uuid, pit))
 
 
 def test_list_of_list_segments(sumo, uuid, pit):
@@ -101,47 +84,31 @@ def test_list_of_list_segments(sumo, uuid, pit):
     ), f"Actual segments: {actual_segments}, should be {correct_segments}"
 
 
-def test_generate_dispatch_info(uuid, env="prod"):
+def test_generate_dispatch_info(uuid, env="preview"):
     """Test function generate_dispatch_info
 
     Args:
         uuid (str): case uuid
         env (str, optional): sumo environment. Defaults to "prod".
     """
-    tasks = dispatch.generate_dispatch_info(uuid, env)
-    print(tasks)
-    print(f"Tasks made %s {len(tasks)}")
-    with open("dispath_info_snorre.json", "w", encoding="utf-8") as outfile:
-        json.dump(tasks, outfile)
-    # print(f"{len(tasks)} element created")
-    # # the_essentials = ["FOPT", "FOPR", "FGPT", "FGPR"]
-    # fopt_found = False
-    # prev_list = []
-    # mandatories = ["table_index", "columns", "object_ids", "base_meta"]
-    # all_mandatories_found = False
-    # lists_equal = False
-    # for task in tasks:
-    #     if "FOPT" in task["columns"]:
-    #         fopt_found = True
-    #     for mandatory in mandatories:
-    #         all_mandatories_found = mandatory in task.keys()
-    #     if prev_list == task["columns"]:
-    #         lists_equal = True
-    #     prev_list = task["columns"]
+    tasks = dispatch.generate_dispatch_info(uuid, env, "iter-1")
+    for task in tasks:
+        assert len(task["columns"]) <= len(task["table_index"]) + 250, "Too many columns in task"
+        assert len(task["columns"]) > len(task["table_index"]), "more columns than table index"
+        assert len(task["base_meta"]["data"]["spec"]["columns"]) == 0, f"data.spec.columns not nulled ({len(task['base_meta']['data']['spec']['columns'])})"
 
+    assert len(tasks) == 104, "Should be 104 jobs for Troll case"
 
-#
-# assert fopt_found, "FOPT not found"
-# assert all_mandatories_found, "Some of the mandatories not found"
-# # assert not lists_equal, "Some list elements are equal"
-# assert len(tasks) == 47, "Wrong length!"
 
 
 def test_aggregate_and_upload(sumo):
-    json_file = "data/dispath_info_snorre.json"
 
     content = []
-    with open(Path(__file__).parent / json_file, "r", encoding="utf-8") as stream:
+    with open("failed.json", "r", encoding="utf-8") as stream:
         content = json.load(stream)
     print(content[0])
     dispatch.aggregate_and_upload(content[0], sumo)
+
+def test_get_object(sumo):
+    table = ut.get_object('8557eacd-ed4f-a80d-d466-467301f22bbd', ["DATE"], sumo)
+    # table = ut.get_object('fe7b75c5-9219-548f-476f-46c4535a98e3', ["DATE"], sumo)

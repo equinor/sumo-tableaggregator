@@ -21,8 +21,8 @@ import pyarrow as pa
 import pyarrow.compute as pc
 from pyarrow import feather
 import pyarrow.parquet as pq
-from sumo.wrapper import SumoClient
 from httpx import HTTPStatusError
+from sumo.wrapper import SumoClient
 
 
 # inner psutil function
@@ -108,7 +108,6 @@ def init_logging(name: str) -> logging.Logger:
     returns (logging.Logger): an initialized logger
     """
     logger = logging.getLogger(name)
-    logger.addHandler(logging.NullHandler())
     return logger
 
 
@@ -329,133 +328,74 @@ def query_for_name_and_tags(sumo: SumoClient, case_uuid: str, iteration: str):
     return name_with_tags
 
 
-def query_sumo(
-    sumo: SumoClient,
-    case_uuid: str,
-    name: str,
-    tag: str,
-    iteration: str,
-    pit: str,
-    search_after=None,
-) -> dict:
-    """Query for given table type
-
-    Args:
-        sumo (SumoClient): initialized sumo client
-        case_uuid (str): case uuid
-        name (str): name of table
-        iteration (str): iteration number
-        tag (str): tagname of table. Defaults to "".
-        pit (str): id for point in time
-
-    Returns:
-        dict: query results
-    """
-    logger = init_logging(__name__ + ".query_sumo")
-    logger.debug(
-        "At query: id: %s, name: %s, tag: %s, it: %s",
-        case_uuid,
-        name,
-        tag,
-        iteration,
-    )
-    buck_term = "file.checksum_md5.keyword"
-    query = (
-        f"class:table AND _sumo.parent_object:{case_uuid}"
-        + f" AND data.name:{name} AND data.tagname:{tag}"
-        + f" AND fmu.iteration.name:{iteration}"
-        + " AND NOT fmu.aggregation.operation:*"
-    )
-    logger.debug("Passing query: %s", query)
-    if search_after is None:
-        logger.debug("No search after specified")
-        query_results = sumo.get(
-            "/search",
-            {
-                "$query": query,
-                "$sort": "_doc:asc",
-                "$pit": pit,
-                "$size": 100,
-                "$buckets": buck_term,
-            },
-        ).json()
-    else:
-        logger.debug("\n\nIn a search after situation\n\n")
-        time.sleep(2)
-        query_results = sumo.get(
-            "/search",
-            {
-                "$query": query,
-                "$size": 100,
-                "$sort": "_doc:asc",
-                "$pit": pit,
-                "$search_after": json.dumps(search_after),
-                "$buckets": buck_term,
-            },
-        ).json()
-    buckets = get_buckets(query_results["aggregations"], buck_term)
-    logger.debug("Returning query results %s", query_results)
-    logger.debug("And returning buckets")
-    return query_results, buckets
-
-
 def query_for_table(
     sumo: SumoClient,
     case_uuid: str,
     name: str,
-    tag: str,
-    iteration: str,
+    tagname: str,
+    iterationname: str,
     pit: str = None,
     **kwargs: dict,
-) -> tuple:
-    """Fetch object id numbers and metadata
+):
+    """Get blob id's for one specific table combination of name,tagname, and iteration
 
     Args:
-        sumo (SumoClient): intialized sumo client
+        sumo (SumoClient): Initialized client
         case_uuid (str): case uuid
         name (str): name of table
-        tag (str, optional): tagname of table. Defaults to "".
-        iteration (str): iteration number
-
-
-    Raises:
-        RuntimeError: if no tables found
+        tagname (str): tagname of table
+        iterationname (str): name of iteration
+        pit (str, optional): point in time. Defaults to None.
 
     Returns:
-        tuple: contains parent id, object ids, meta data stub, all real numbers
-               and dictionary containing all global variables for all realizations
+        tuple: contains metadata object, realization ids as list and blob_id's
     """
     logger = init_logging(__name__ + ".query_for_table")
-    logger.debug(
-        "Passing to query: id: %s, name: %s, tag: %s, it: %s",
-        case_uuid,
-        name,
-        tag,
-        iteration,
-    )
-    unique_buck = set()
-    query_results, buck = query_sumo(sumo, case_uuid, name, tag, iteration, pit)
-    total_hits = query_results["hits"]["total"]["value"]
-    if total_hits == 0:
-        raise RuntimeError("Query returned with no hits, if you want results: modify!")
-    hits = query_results["hits"]["hits"]
-    unique_buck.update(buck)
-
-    while len(hits) < total_hits:
-        query_results, more_buck = query_sumo(
-            sumo, case_uuid, name, tag, iteration, pit, hits[-1]["sort"]
-        )
-        hits.extend(query_results["hits"]["hits"])
-        unique_buck.update(more_buck)
-        logger.debug("hits actually contained in request: %s", len(hits))
-
-    if len(unique_buck) == 1:
+    query = {
+        "query": {
+            "bool": {
+                "must": [
+                    {"term": {"fmu.case.uuid.keyword": {"value": case_uuid}}},
+                    {"term": {"data.name.keyword": {"value": name}}},
+                    {"term": {"data.tagname.keyword": {"value": tagname}}},
+                    {"term": {"fmu.iteration.name.keyword": {"value": iterationname}}},
+                    {"term": {"fmu.context.stage.keyword": {"value": "realization"}}},
+                ]
+            }
+        },
+        "size": 1,
+        "track_total_hits": True,
+        "aggs": {
+            "checksums": {"cardinality": {"field": "file.checksum_md5.keyword"}},
+        },
+        "_source": {"excludes": ["fmu.realization.parameters"]},
+    }
+    query_result = sumo.post("/search", json=query).json()
+    if query_result["aggregations"]["checksums"]["value"] == 1:
         logger.warning(
-            "Name: %s and tag %s, all objects are equal, will only pass one", name, tag
+            "Name: %s and tag %s, all objects are equal, will only pass one",
+            name,
+            tagname,
         )
-        hits = hits[:1]
-    results = get_blob_ids_w_metadata(hits, **kwargs)
-    return results
+    query["size"] = 1000  # fixme: should handle cases with more than 1000 objects ?
+    query["_source"] = {"includes": ["fmu.realization.id"]}
+    del query["aggs"]
+    query_ids = sumo.post("/search", json=query).json()
+
+    blob_ids = {}
+    for hit in query_ids["hits"]["hits"]:
+        blob_ids[hit["_source"]["fmu"]["realization"]["id"]] = hit["_id"]
+
+    table_index = query_result["hits"]["hits"][0]["_source"]["data"]["table_index"]
+    return (
+        blob_ids,
+        convert_metadata(
+            query_result["hits"]["hits"][0]["_source"],
+            list(blob_ids.keys()),
+            table_index,
+        ),
+        table_index,
+    )
 
 
 def uuid_from_string(string: str) -> str:
@@ -469,6 +409,39 @@ def uuid_from_string(string: str) -> str:
     """
     return str(uuid.UUID(hashlib.md5(string.encode("utf-8")).hexdigest()))
 
+def read_available_columns(file_path, cols_to_read):
+    """Read parquet table with available columns
+
+    Args:
+        file_path (str): path to file to read
+        cols_to_read (set): unique columns to try to read
+
+    Returns:
+        pa.Table: read table
+    """
+    logger = init_logging(__name__ + ".read_available_columns")
+    # Stolen from https://issues.apache.org/jira/browse/ARROW-11473
+    len_asked_for = len(cols_to_read)
+    try:
+        meta = pq.read_metadata(file_path) # reads only the metadata
+        logger.debug("Wanting to retrieve %s columns", )
+        # Get the column names from the schema
+        table_columns = meta.schema.names
+        logger.debug("table contains %s columns", len(table_columns))
+        # Do an intersection with the names you want to read
+        available_columns = list(set(cols_to_read) & set(table_columns))
+        len_retrieved = len(available_columns)
+        try:
+            table = pq.read_table(file_path, columns=available_columns)
+            logger.warning("Got %s columns less than asked for", len_asked_for - len_retrieved)
+        except pa.lib.ArrowInvalid:
+            table = pa.table([])
+            logger.error("file %s is empty", file_path)
+    except pa.lib.ArrowInvalid:
+        table = pa.table([])
+        logger.error("Table with name %s is completely empty", file_path)
+    return table
+
 
 def get_object(object_id: str, cols_to_read: list, sumo: SumoClient) -> pa.Table:
     """fetche sumo object as pa.Table
@@ -480,6 +453,7 @@ def get_object(object_id: str, cols_to_read: list, sumo: SumoClient) -> pa.Table
     Returns:
         pa.Table: the object as pyarrow
     """
+    logger = init_logging(__name__ + ".get_object")
     query = f"/objects('{object_id}')/blob"
     file_path = f"{object_id}.parquet"
 
@@ -488,8 +462,15 @@ def get_object(object_id: str, cols_to_read: list, sumo: SumoClient) -> pa.Table
 
         table = blob_to_table(BytesIO(blob.content))
         pq.write_table(table, file_path)
+        logger.debug("Written object to file %s", file_path)
+    try:
+        table = pq.read_table(file_path, columns=list(cols_to_read))
+        logger.debug("Table is read as should be!")
+    except (pa.lib.ArrowInvalid, KeyError):
 
-    return pq.read_table(file_path, columns=list(cols_to_read))
+        table = read_available_columns(file_path, cols_to_read)
+
+    return table
 
 
 def blob_to_table(blob_object) -> pa.Table:
@@ -511,7 +492,7 @@ def blob_to_table(blob_object) -> pa.Table:
         try:
             table = pa.Table.from_pandas(frame)
         except KeyError:
-            table = pa.Table.from_pandas(pd.DataFrame())
+            table = pa.table([])
         fformat = "csv"
     except UnicodeDecodeError:
         try:
@@ -725,21 +706,22 @@ def reconstruct_table(
             real_table.column_names,
             real_nr,
         )
-        real_table = real_table.add_column(0, "REAL", pa.array([np.int16(real_nr)] * rows))
+        real_table = real_table.add_column(
+            0, "REAL", pa.array([np.int16(real_nr)] * rows)
+        )
         missing = [
             col_name for col_name in required if col_name not in real_table.column_names
         ]
         if len(missing):
             logger.info("Real: %s, missing these columns %s", real_nr, missing)
+
         for miss in missing:
             real_table = real_table.add_column(0, miss, pa.array([None] * rows))
         logger.debug("Table created %s", type(real_table))
 
-        # Sort to ensure that table has cols in same order even
-        # when missing cols occur
-        real_table = real_table.select(sorted(real_table.column_names))
     except HTTPStatusError:
         real_table = pa.table([])
+        logger.error("Could not read table in real %s (object id: %s)", real_nr, object_id)
     logger.info("Reconnstructed table, size is %s", real_table.nbytes)
     return real_table
 
@@ -798,14 +780,21 @@ def do_stats(frame, index, col_name, aggfunc, aggname):
     """
     logger = init_logging(__name__ + ".do_stats")
     # frame = table.to_pandas()
-    logger.debug("Nr of columns prior to groupby: %s", len(frame.columns))
-    try:
-        stat = frame.groupby(index)[col_name].agg(aggfunc).to_frame().reset_index()
-    except (TypeError, NotImplementedError):
+    logger.debug("Nr of columns prior to groupby %s of %s: %s", aggname, col_name, len(frame.columns))
+    if isinstance(frame[col_name], object):
+        try:
+            stat = frame.groupby(index)[col_name].agg(aggfunc).to_frame().reset_index()
+        except (TypeError, NotImplementedError, BrokenPipeError) as error:
+            logger.warning("Aggregation failed with error %s, results will be empty", error)
+            stat = pd.DataFrame()
+    else:
+        logger.warning("Statistical aggregation on object column %s", col_name)
         stat = pd.DataFrame()
     table = pa.Table.from_pandas(stat)
     output = (aggname, table)
-    logger.debug("%s %s", output[0], len(output[1].column_names))
+
+    logger.debug("%s of %s returning %s columns", output[0], col_name,
+                 len(output[1].column_names))
     return output
 
 
@@ -848,7 +837,7 @@ def make_stat_aggregations(
         )
         logger.debug(
             "Columns after conversion to pandas df %s (size %s)",
-            frame.columns,
+            dict(zip(frame.columns.tolist(),frame.dtypes.tolist())),
             frame.shape,
         )
         stat_input.extend(
@@ -880,7 +869,6 @@ def prepare_object_launch(meta: dict, table, name, operation):
     md5 = md5sum(byte_string)
     full_meta = deepcopy(meta)
     parent = full_meta["data"]["name"]
-    logger.debug("Name prior to change: %s", parent)
     unique_name = (
         parent
         + f"--{name}--{tag}--{operation}--"
@@ -893,10 +881,9 @@ def prepare_object_launch(meta: dict, table, name, operation):
     full_meta["data"]["spec"]["columns"] = table.column_names
     if operation == "collection":
         full_meta["data"]["table_index"].append("REAL")
-    # full_meta["data"]["name"] = name
     full_meta["display"]["name"] = name
     full_meta["file"]["relative_path"] = unique_name
-    size = sys.getsizeof(full_meta) / (1024 * 1024)
+    size = sys.getsizeof(json.dumps(full_meta)) / (1024 * 1024)
     logger.info("Size of meta dict: %.2e\n", size)
     logger.debug("Metadata %s", full_meta)
     logger.debug("Object %s ready for launch", unique_name)
@@ -910,7 +897,7 @@ def table_to_bytes(table: pa.Table):
         table (pa.Table): the table to be converted
 
     Returns:
-        _type_: table as bytestring
+        bytes: table as bytestring
     """
     sink = pa.BufferOutputStream()
     pq.write_table(table, sink)
@@ -973,38 +960,19 @@ def upload_table(
     path = f"/objects('{parent_id}')"
     rsp_code = "0"
     success_response = (200, 201)
-    meta_upload = True
-    while rsp_code not in success_response:
-        size_of_meta = sys.getsizeof(meta) / (1024 * 1024)
-        try:
-            response = sumo.post(path=path, json=meta)
-            rsp_code = response.status_code
-            logger.info("response meta: %s", rsp_code)
-
-        except Exception:
-            exp_type, exp, _ = sys.exc_info()
-            logger.warning(
-                "Exception %s while uploading metadata (%s) (Size: %.2e MB)",
-                exp,
-                str(exp_type),
-                size_of_meta,
-            )
-    if meta_upload:
+    response = sumo.post(path=path, json=meta)
+    meta_rsp_code = response.status_code
+    logger.info("response meta: %s", meta_rsp_code)
+    logger.info("Response type %s", type(meta_rsp_code))
+    if meta_rsp_code in success_response:
         blob_url = response.json().get("blob_url")
-        rsp_code = "0"
-        while rsp_code not in success_response:
-            try:
-                response = sumo.blob_client.upload_blob(blob=byte_string, url=blob_url)
-                rsp_code = response.status_code
-                logger.info("Response blob %s", rsp_code)
-            except Exception:
-                exp_type, exp, _ = sys.exc_info()
-                logger.warning(
-                    "Exception %s while uploading metadata (%s)", exp, str(exp_type)
-                )
+        response = sumo.blob_client.upload_blob(blob=byte_string, url=blob_url)
+        rsp_code = response.status_code
+        logger.info("Response blob %s", rsp_code)
+        logger.info("Uploaded byte string with size %s", len(byte_string))
         logger.info("uploaded %s", meta["file"]["relative_path"])
     else:
-        logger.error("Cannot upload blob since no meta upload")
+        logger.error("Cannot upload blob since no meta upload, response was %s", meta_rsp_code)
 
 
 def upload_stats(
@@ -1173,7 +1141,6 @@ def convert_metadata(
     agg_metadata["fmu"]["context"]["stage"] = "iteration"
     # Since no file on disk, trying without paths
     agg_metadata["file"]["absolute_path"] = ""
-    agg_metadata["data"]["spec"]["columns"] = []
     logger.info("The table index will be %s", agg_metadata["data"]["table_index"])
 
     return agg_metadata
