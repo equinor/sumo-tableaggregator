@@ -15,8 +15,7 @@ def query_for_names_and_tags(
     Args:
         sumo (SumoClient): Client to a given sumo environment
         case_uuid (str): uuid of a specific case
-        pit (str): point in time id
-
+        iter_name (str): name of iteration
     Returns:
         dict: query results
     """
