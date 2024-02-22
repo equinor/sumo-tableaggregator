@@ -2,6 +2,7 @@ from fmu.sumo.explorer import Explorer
 import duckdb
 import os
 import time
+
 # import seaborn as sns
 # from matplotlib import pyplot as plt
 # import matplotlib
@@ -35,6 +36,7 @@ baseuri, auth = authres["baseuri"], authres["auth"]
 bloburls = [f"{baseuri}{uuid}?{auth}" for uuid in uuids]
 
 duckdb.sql("set threads = 40")
+duckdb.sql("set memory_limit = '32GiB'")
 duckdb.sql("set preserve_insertion_order = false")
 
 duckdb.sql("create table realfiles (filename VARCHAR, REAL INTEGER)")
@@ -60,7 +62,7 @@ time.sleep(10)
 t0 = time.perf_counter()
 res = duckdb.sql(
     f"SELECT {list_as_string(cols)} from read_parquet({bloburls}, filename=True) JOIN realfiles USING (filename)"
-    # f"SELECT {list_as_string(cols)} from read_parquet({bloburls}, filename=True)"    
+    # f"SELECT {list_as_string(cols)} from read_parquet({bloburls}, filename=True)"
 ).arrow()
 t1 = time.perf_counter()
 print(f"Elapsed: {t1-t0:0.3} seconds.")
