@@ -43,43 +43,40 @@ def list_as_string(lst):
     return ",".join(['"' + el + '"' for el in lst])
 
 
-logging.basicConfig(level="DEBUG")
-logger = logging.getLogger("duckdb")
+TEST_CASES = {
+    "DROGON": {"case_uuid": "ac1a2df9-961e-4a54-82a6-7da7283a2942", "env": "dev"},
+    "TROLL": {"case_uuid": "9c9d9a52-1cf4-44cc-829f-23b8334ae813", "env": "preview"},
+}
 
-
-CASE_UUID = "9c9d9a52-1cf4-44cc-829f-23b8334ae813"
-
-CLIENT = SumoClient(env="preview")
+logger = logging.getLogger("setup")
 logger.info(f"PID: {os.getpid()}")
 
 
 def convert_seconds(seconds):
     sec = timedelta(seconds=seconds)
-    print(sec)
     d = datetime(1, 1, 1) + sec
-    print(d)
     return f"{d.minute} minutes, {d.second} seconds"
 
 
-def make_bloburls_and_cols():
-    real_dict = query_for_uuids_and_reals(
-        CASE_UUID, "TROLL", "summary", "iter-0", CLIENT
-    )
-    print(real_dict)
+def make_bloburls_and_cols(asset_name):
+    uuid = TEST_CASES[asset_name]["case_uuid"]
+    client = SumoClient(env=TEST_CASES[asset_name]["env"])
+    real_dict = query_for_uuids_and_reals(uuid, asset_name, "summary", "iter-0", client)
+    logger.debug(real_dict)
 
     uuids = list(real_dict.values())
     realizations = list(real_dict.keys())
-    print(len(uuids))
-    print(len(realizations))
+    logger.debug(len(uuids))
+    logger.debug(len(realizations))
 
-    firstobj = CLIENT.get(f"/objects('{uuids[0]}')").json()
+    firstobj = client.get(f"/objects('{uuids[0]}')").json()
 
     columns = firstobj.get("_source").get("data").get("spec").get("columns")
-    print(len(columns))
+    logger.debug(len(columns))
 
     cols = columns[:10]
 
-    authres = CLIENT.get(f"/objects('{CASE_UUID}')/authtoken").json()
+    authres = client.get(f"/objects('{uuid}')/authtoken").json()
     baseuri, auth = authres["baseuri"], authres["auth"]
 
     bloburls = [f"{baseuri}{uuid}?{auth}" for uuid in uuids]

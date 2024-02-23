@@ -6,7 +6,7 @@ from test_setup import make_bloburls_and_cols, list_as_string, digest
 logging.basicConfig(level="INFO")
 logger = logging.getLogger("duckdb")
 
-bloburls, realids, cols = make_bloburls_and_cols()
+bloburls, realids, cols = make_bloburls_and_cols("DROGON")
 
 duckdb.sql("set threads = 40")
 duckdb.sql("set memory_limit = '32GiB'")
