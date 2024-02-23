@@ -2,6 +2,7 @@ import os
 from sumo.wrapper import SumoClient
 import logging
 from datetime import datetime, timedelta
+import time
 
 
 def query_for_uuids_and_reals(case_uuid, name, tagname, iterationname, sumo):
@@ -81,6 +82,15 @@ def make_bloburls_and_cols(asset_name):
 
     bloburls = [f"{baseuri}{uuid}?{auth}" for uuid in uuids]
     return bloburls, realizations, cols
+
+
+def evaluate_reading(func, *args):
+    time.sleep(1)
+    t0 = time.perf_counter()
+    res = func(*args)
+    t1 = time.perf_counter()
+    time.sleep(1)
+    digest(t0, t1, res)
 
 
 def digest(start, stop, res):
