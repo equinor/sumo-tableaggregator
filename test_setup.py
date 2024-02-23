@@ -10,6 +10,7 @@ TEST_CASES = {
     "TROLL": {"case_uuid": "9c9d9a52-1cf4-44cc-829f-23b8334ae813", "env": "preview"},
 }
 
+ASSETNAME = "TROLL"
 ROUNDS = 10
 
 
@@ -66,10 +67,11 @@ def convert_seconds(seconds):
     return f"{d.minute} minutes, {d.second} seconds"
 
 
-def make_bloburls_and_cols(asset_name):
-    uuid = TEST_CASES[asset_name]["case_uuid"]
-    client = SumoClient(env=TEST_CASES[asset_name]["env"])
-    real_dict = query_for_uuids_and_reals(uuid, asset_name, "summary", "iter-0", client)
+def make_bloburls_and_cols():
+    logger.info("Running test for %s", ASSETNAME)
+    uuid = TEST_CASES[ASSETNAME]["case_uuid"]
+    client = SumoClient(env=TEST_CASES[ASSETNAME]["env"])
+    real_dict = query_for_uuids_and_reals(uuid, ASSETNAME, "summary", "iter-0", client)
     logger.debug(real_dict)
 
     uuids = list(real_dict.values())
@@ -82,8 +84,8 @@ def make_bloburls_and_cols(asset_name):
     columns = firstobj.get("_source").get("data").get("spec").get("columns")
     logger.debug(len(columns))
 
-    cols = columns[:10]
-
+    cols = columns
+    logger.info("Nr of columns %s", len(columns))
     authres = client.get(f"/objects('{uuid}')/authtoken").json()
     baseuri, auth = authres["baseuri"], authres["auth"]
 
@@ -114,5 +116,5 @@ def evaluate_reading_many(func, *args):
 def digest(start, stop, res):
     elapsed = stop - start
     logger.info("Elapsed: %s ", f"{elapsed: 5.2f} seconds ({convert_seconds(elapsed)})")
-    logger.debug(len(res.column_names))
-    logger.debug(res.shape)
+    logger.info(len(res.column_names))
+    logger.info(res.shape)

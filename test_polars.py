@@ -6,7 +6,7 @@ from test_setup import make_bloburls_and_cols, evaluate_reading_many
 logging.basicConfig(level="INFO")
 logger = logging.getLogger("polars")
 
-bloburls, _, cols = make_bloburls_and_cols("DROGON")
+bloburls, _, cols = make_bloburls_and_cols()
 
 
 def read_with_polars(columns, urls):
