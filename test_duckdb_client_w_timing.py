@@ -1,7 +1,6 @@
 import duckdb
-import time
 import logging
-from test_setup import make_bloburls_and_cols, list_as_string, evaluate_reading
+from test_setup import make_bloburls_and_cols, list_as_string, evaluate_reading_many
 
 logging.basicConfig(level="INFO")
 logger = logging.getLogger("duckdb")
@@ -25,4 +24,4 @@ def read_with_duckdb(columns, urls):
     ).arrow()
 
 
-evaluate_reading(read_with_duckdb, cols, bloburls)
+evaluate_reading_many(read_with_duckdb, cols, bloburls)

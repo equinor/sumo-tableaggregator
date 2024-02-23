@@ -1,6 +1,6 @@
 import polars as pl
 import logging
-from test_setup import make_bloburls_and_cols, evaluate_reading
+from test_setup import make_bloburls_and_cols, evaluate_reading_many
 
 
 logging.basicConfig(level="INFO")
@@ -20,4 +20,4 @@ def read_with_polars(columns, urls):
     return sql.execute(query, eager=True).to_arrow()
 
 
-evaluate_reading(read_with_polars, cols, bloburls)
+evaluate_reading_many(read_with_polars, cols, bloburls)
