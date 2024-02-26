@@ -785,7 +785,7 @@ def aggregate_parquet_duckdb(uuid: str, object_ids: Dict[str, str],
         f"SELECT {list_as_string(cols)} from read_parquet({bloburls}, filename=True) JOIN realfiles USING (filename)")
     t1 = time.perf_counter()
     logger.info(f"duckdb: elapsed {t1-t0:0.3} seconds.")
-    return res.df()
+    return res.arrow()
 
 
 def p10(array_like: Union[np.array, pd.DataFrame]) -> np.array:
