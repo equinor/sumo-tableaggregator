@@ -110,6 +110,7 @@ def generate_dispatch_info(
 
     dispatch_info = []
     name_and_tag = collect_names_and_tags(sumo, uuid, iteration_name)
+    name_and_tag = { "TROLL": ["summary]} # FIXME!
     logger.debug("---------")
     logger.debug(name_and_tag)
     logger.debug("---------")
