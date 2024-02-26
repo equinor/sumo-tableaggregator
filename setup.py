@@ -36,6 +36,7 @@ setup(
         "setuptools",
         "azure-core",
         "deprecation",
+        "duckdb",
     ],
     python_requires=">=3.8",
     packages=find_packages("src"),

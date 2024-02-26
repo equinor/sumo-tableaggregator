@@ -23,7 +23,7 @@ from pyarrow import feather
 import pyarrow.parquet as pq
 from httpx import HTTPStatusError
 from sumo.wrapper import SumoClient
-
+import duckdb
 
 # inner psutil function
 def process_memory():
@@ -748,6 +748,44 @@ async def aggregate_arrow(
     logger.info("Ready for action!")
     aggregated = pa.concat_tables(await asyncio.gather(*aggregated), promote=True)
     return aggregated
+
+def list_as_string(lst):
+    return ",".join(['"' + elt + '"' for elt in lst])
+
+
+def aggregate_parquet_duckdb(uuid: str, object_ids: Dict[str, str],
+                             sumo: SumoClient, columns):
+    """Aggregate the individual objects into one large pyarrow table
+    args:
+    uuid: case uuid; used to generate auth token and urls for source objects
+    object_ids (dict): key is real nr, value is object id
+    sumo (SumoClient): initialized sumo client
+    columns (list): list of columns to extract
+    returns: pa.Table: the aggregated results
+    """
+    authres = sumo.get(f"/objects('{uuid}')/authtoken").json()
+    baseuri, auth = authres["baseuri"], authres["auth"]
+    realids = list(object_ids.keys())
+    uuids = list(object_ids.values())
+    bloburls = [f"{baseuri}{uuid}?{auth}" for uuid in uuids]
+
+    # duckdb.sql("set threads = 40")
+    duckdb.sql("set preserve_insertion_order = false")
+    # duckdb.sql("set enable_object_cache = true")
+    # duckdb.sql("set enable_http_metadata_cache = true")
+
+    duckdb.sql("create table realfiles (filename VARCHAR, REAL INTEGER)")
+    for fn, realid in zip(bloburls, realids):
+        duckdb.sql(f"INSERT INTO realfiles VALUES ('{fn}', {realid})")
+
+    logger = sumo.getLogger("sumo-table-aggregator")
+    cols = ["REAL"] + columns
+    t0 = time.perf_counter()
+    res = duckdb.sql(
+        f"SELECT {list_as_string(cols)} from read_parquet({bloburls}, filename=True) JOIN realfiles USING (filename)")
+    t1 = time.perf_counter()
+    logger.info("duckdb: elapsed {t1-t0:0.3} seconds.")
+    return res.pd()
 
 
 def p10(array_like: Union[np.array, pd.DataFrame]) -> np.array:

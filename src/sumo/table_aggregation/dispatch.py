@@ -169,14 +169,15 @@ def aggregate_and_upload(dispatch_info, sumo):
     loop = asyncio.get_event_loop()
     aggregated = None
     if (table_index is not None) and (len(table_index) > 0):
-        aggregated = loop.run_until_complete(
-            ut.aggregate_arrow(
-                object_ids,
-                sumo,
-                columns,
-                loop,
-            )
-        )
+        # aggregated = loop.run_until_complete(
+        #     ut.aggregate_arrow(
+        #         object_ids,
+        #         sumo,
+        #         columns,
+        #         loop,
+        #     )
+        # )
+        aggregated = ut.aggregate_parquet_duckdb(uuid, object_ids, sumo, columns)
         executor = ThreadPoolExecutor()
         loop.run_until_complete(
             ut.extract_and_upload(
