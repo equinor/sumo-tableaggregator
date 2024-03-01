@@ -36,8 +36,6 @@ setup(
         "setuptools",
         "azure-core",
         "deprecation",
-        "duckdb",
-        "httpfs",
     ],
     python_requires=">=3.8",
     packages=find_packages("src"),
