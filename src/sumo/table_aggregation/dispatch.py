@@ -179,15 +179,15 @@ def aggregate_and_upload(dispatch_info, sumo):
         #     )
         # )
         aggregated = ut.aggregate_parquet_duckdb(uuid, object_ids, sumo, columns)
-        executor = ThreadPoolExecutor()
-        loop.run_until_complete(
-            ut.extract_and_upload(
-                sumo,
-                uuid,
-                aggregated,
-                table_index,
-                base_meta,
-                loop,
-                executor,
-            )
-        )
+        # executor = ThreadPoolExecutor()
+        # loop.run_until_complete(
+        #     ut.extract_and_upload(
+        #         sumo,
+        #         uuid,
+        #         aggregated,
+        #         table_index,
+        #         base_meta,
+        #         loop,
+        #         executor,
+        #     )
+        # )
