@@ -89,8 +89,6 @@ def list_of_list_segments(metadata, seg_length=250):
         segment_set.update(metadata["data"]["table_index"])
         segmented_list.append(list(segment_set))
 
-    # FIXME! Just return one segment of 10 signals.
-    segmented_list = [segmented_list[0][:10]]
     return segmented_list
 
 
