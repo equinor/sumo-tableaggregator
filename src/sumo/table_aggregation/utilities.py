@@ -1112,22 +1112,22 @@ async def extract_and_upload(
         )
 
         count += 1
-    tasks.extend(
-        upload_stats(
-            sumo,
-            parent_id,
-            make_stat_aggregations(table_dict, table_index),
-            meta_stub,
-            loop,
-            executor,
-        )
-    )
+    # tasks.extend(
+    #     upload_stats(
+    #         sumo,
+    #         parent_id,
+    #         make_stat_aggregations(table_dict, table_index),
+    #         meta_stub,
+    #         loop,
+    #         executor,
+    #     )
+    # )
 
-    logger.debug("Submitting: %s additional tasks", len(table_dict.keys()))
+    # logger.debug("Submitting: %s additional tasks", len(table_dict.keys()))
 
     logger.debug("Tasks to run %s ", len(tasks))
     await asyncio.gather(*tasks)
-    logger.debug("%s objects produced", count * 6 + 2)
+    logger.debug("%s objects produced", count + 2)
 
 
 def convert_metadata(
